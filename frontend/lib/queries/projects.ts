@@ -6,14 +6,16 @@ import {
   ProjectImage,
   fetchProjectResults,
 } from "../projects";
-import { io } from "socket.io-client";
+import io from "socket.io-client";
 
 export const useGetProjects = (uid: string, token: string) => {
   return useQuery({
     queryKey: ["projects", uid, token],
     queryFn: () => fetchProjects(uid, token),
+    enabled: !!uid && !!token, // só faz request se tiver uid+token
   });
 };
+
 
 export const useGetProject = (uid: string, pid: string, token: string) => {
   return useQuery({

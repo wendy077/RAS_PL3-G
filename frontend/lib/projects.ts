@@ -40,7 +40,9 @@ export interface ProjectToolResponse extends Omit<ProjectTool, "_id"> {
 }
 
 export const fetchProjects = async (uid: string, token: string) => {
-  const response = await api.get<Project[]>(`/projects/${uid}`, {
+    if (!uid || !token) return []; // evita /projects/ sem uid
+
+    const response = await api.get<Project[]>(`/projects/${uid}`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -536,6 +538,11 @@ export const processProject = async ({
     },
   );
 
-  if (response.status !== 201 || !response.data)
+  // Aceitar 200 ou 201
+  if (response.status !== 200 && response.status !== 201) {
     throw new Error("Failed to request project processing");
+  }
+
+  // devolve o id da tarefa se for preciso mais à frente 
+  return response.data;
 };

@@ -17,6 +17,8 @@ import { Project } from "@/lib/projects";
 
 export default function ProjectList() {
   const session = useSession();
+  const uid = session.user._id;
+  const token = session.token;
   const projects = useGetProjects(session.user._id, session.token);
   const [searchOpen, setSearchOpen] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>("");

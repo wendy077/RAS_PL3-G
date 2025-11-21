@@ -21,6 +21,28 @@ function removeSensitiveInfo(user) {
   return userWithoutPassword;
 }
 
+function getRemainingOperations(user) {
+  if (user.type === "premium") return null; 
+
+  const { year, month, day } = get_cur_date();
+  const today = new Date(year, month, day);
+
+  const opToday = user.operations.find(
+    (o) => o.day.getTime() === today.getTime()
+  );
+
+  const used = opToday ? opToday.processed : 0;
+
+  if (user.type === "free")
+    return Math.max(0, max_free_daily_op - used);
+
+  // anonymous não pode usar advanced_tools -> 0 operações “pagas”
+  if (user.type === "anonymous") return 0;
+
+  return 0;
+}
+
+
 function check_process(user, op, op_num) {
   if (op_num == 0) return true;
 
@@ -49,8 +71,10 @@ router.get("/validate/:user", function (req, res, next) {
         const isValid = auth.validate_jwt(user, token);
         if (isValid) {
           const userResponse = removeSensitiveInfo(user);
+          const remaining_operations = getRemainingOperations(user);
+
           res.status(200).json({
-            user: userResponse,
+            user: { ...userResponse, remaining_operations },
             token: token,
           });
         } else res.status(401).jsonp("Invalid token.");
@@ -67,7 +91,8 @@ router.get("/:user", function (req, res, next) {
   User.getOne(req.params.user)
     .then((user) => {
       const userResponse = removeSensitiveInfo(user);
-      res.status(200).jsonp(userResponse);
+      const remaining_operations = getRemainingOperations(user);
+      res.status(200).jsonp({ ...userResponse, remaining_operations });
     })
     .catch((_) => res.status(701).jsonp(`Error acquiring user's information.`));
 });
@@ -137,11 +162,15 @@ router.post("/", function (req, res, next) {
   console.log(req.body);
 
   User.create(user)
-    .then((user) =>
-      res
-        .status(201)
-        .jsonp({ user: removeSensitiveInfo(user), jwt: auth.get_jwt(user) }),
-    )
+    .then((user) => {
+      const userResponse = removeSensitiveInfo(user);
+      const remaining_operations = getRemainingOperations(user);
+
+      res.status(201).jsonp({
+        user: { ...userResponse, remaining_operations },
+        jwt: auth.get_jwt(user),
+      });
+    })
     .catch((_) => {
       res.status(702).jsonp("Error creating a new user.");
     });
@@ -154,8 +183,10 @@ router.post("/:email/login", function (req, res, next) {
       const correct_pass = await auth.authenticate(req.body.password, user);
       if (correct_pass) {
         const userResponse = removeSensitiveInfo(user);
+        const remaining_operations = getRemainingOperations(user);
+
         res.status(200).jsonp({
-          user: userResponse, // eliminate key "password" from user object
+          user: { ...userResponse, remaining_operations },
           jwt: auth.get_jwt(user),
         });
       } else res.status(401).jsonp("The provided credentials are incorrect");

@@ -30,6 +30,15 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    const handler = () => {
+      session.refetch();
+    };
+
+    window.addEventListener("session-updated", handler);
+    return () => window.removeEventListener("session-updated", handler);
+  }, [session]);
+
   if (!session.data)
     return (
       <div className="flex justify-center items-center size-full absolute top-0 left-0">

@@ -16,6 +16,7 @@ import { useRouter } from "next/navigation";
 import NewProjectDialog from "./new-project-dialog";
 import ProjectList from "./project-list";
 import { useSession } from "@/providers/session-provider";
+import OperationsCounter from "../operations-counter";
 
 export default function DashboardSidebar() {
   const path = usePathname();
@@ -59,7 +60,9 @@ export default function DashboardSidebar() {
           </SidebarGroup>
           <ProjectList />
         </SidebarContent>
-        <SidebarFooter>
+        <SidebarFooter className="flex flex-col gap-2">
+          {(isFreePlan || isAnonymous) && <OperationsCounter />}
+
           {session.user.type !== "anonymous" ? (
             <NavUser
               user={{

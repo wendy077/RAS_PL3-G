@@ -31,6 +31,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ModeToggle } from "@/components/project-page/mode-toggle";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useUpdateSession } from "@/lib/mutations/session";
 
 export default function Project({
   params,
@@ -46,6 +47,7 @@ export default function Project({
   const downloadProjectResults = useDownloadProjectResults();
   const { toast } = useToast();
   const socket = useGetSocket(session.token);
+  const updateSession = useUpdateSession();
   const searchParams = useSearchParams();
   const view = searchParams.get("view") ?? "grid";
   const mode = searchParams.get("mode") ?? "edit";
@@ -191,7 +193,12 @@ export default function Project({
                           onSuccess: () => {
                             setProcessing(true);
                             sidebar.setOpen(false);
-                          },
+                          
+                          updateSession.mutate({
+                            userId: session.user._id,
+                            token: session.token,
+                          });
+                        },
                           onError: (error) =>
                             toast({
                               title: "Ups! An error occurred.",

@@ -14,12 +14,17 @@ export const useLogin = () => {
     mutationFn: login,
     onSuccess: (session) => {
       localStorage.setItem("session", JSON.stringify(session));
+      window.dispatchEvent(new Event("session-updated")); 
+
       qc.invalidateQueries({ refetchType: "all", queryKey: ["session"] });
       qc.removeQueries({ queryKey: ["projects"] });
       qc.removeQueries({ queryKey: ["project"] });
       qc.removeQueries({ queryKey: ["projectImages"] });
       qc.removeQueries({ queryKey: ["projectResults"] });
       qc.removeQueries({ queryKey: ["socket"] });
+
+      window.location.href = "/dashboard";
+
     },
   });
 };
@@ -30,6 +35,8 @@ export const useRegister = () => {
     mutationFn: register,
     onSuccess: (session) => {
       localStorage.setItem("session", JSON.stringify(session));
+      window.dispatchEvent(new Event("session-updated")); 
+
       qc.invalidateQueries({ refetchType: "all", queryKey: ["session"] });
       qc.removeQueries({ queryKey: ["projects"] });
       qc.removeQueries({ queryKey: ["project"] });
@@ -38,6 +45,9 @@ export const useRegister = () => {
         queryKey: ["projectResults"]
       });
       qc.removeQueries({ queryKey: ["socket"] });
+
+      window.location.href = "/dashboard";
+
     },
   });
 };
@@ -48,6 +58,8 @@ export const useLogout = () => {
   return useMutation({
     mutationFn: async () => localStorage.removeItem("session"),
     onSuccess: () => {
+      window.dispatchEvent(new Event("session-updated")); 
+
       register.mutate({ type: "anonymous" });
       qc.removeQueries({ queryKey: ["projects"] });
       qc.removeQueries({ queryKey: ["project"] });
@@ -72,6 +84,7 @@ export const useUpdateSession = () => {
           email: resp.user.email,
           type: resp.user.type,
           operations: resp.user.operations,
+          remaining_operations: resp.user.remaining_operations,
         },
         token: resp.token,
       } as SessionData;

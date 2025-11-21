@@ -10,6 +10,7 @@ export interface User {
     day: Date;
     processed: number;
   }[];
+  remaining_operations?: number | null; // <-- novo
 }
 
 interface UserResponse extends Omit<User, "_id"> {
@@ -43,13 +44,14 @@ export const login = async ({
   if (response.status !== 201 || !response.data)
     throw new Error("Invalid credentials");
 
-  const session = {
+  const session: SessionData = {
     user: {
       _id: response.data.user._id.toString(),
       name: response.data.user.name,
       email: response.data.user.email,
       type: response.data.user.type,
       operations: response.data.user.operations,
+      remaining_operations: response.data.user.remaining_operations,
     },
     token: response.data.jwt,
   };
@@ -72,9 +74,6 @@ export const register = async ({
     const response = await api.post<LoginRegisterResponse>("/users/", {
       type: type,
     });
-    // const response = {
-    //   data: { user_id: new Mongoose.Types.ObjectId(), jwt: "ASKDJFAHSKDLFA" },
-    // };
 
     if (response.status !== 201 || !response.data)
       throw new Error("An error occurred while registering");
@@ -82,8 +81,11 @@ export const register = async ({
     const session: SessionData = {
       user: {
         _id: response.data.user._id.toString(),
-        type: "anonymous",
-        operations: [],
+        name: response.data.user.name,
+        email: response.data.user.email,
+        type: response.data.user.type,
+        operations: response.data.user.operations,
+        remaining_operations: response.data.user.remaining_operations,
       },
       token: response.data.jwt,
     };
@@ -110,6 +112,7 @@ export const register = async ({
       email: response.data.user.email,
       type: response.data.user.type,
       operations: response.data.user.operations,
+      remaining_operations: response.data.user.remaining_operations,
     },
     token: response.data.jwt,
   };
