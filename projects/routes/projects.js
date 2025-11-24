@@ -522,18 +522,31 @@ router.post("/:user", (req, res, next) => {
 });
 
 // Preview an image
+// Preview an image
 router.post("/:user/:project/preview/:img", (req, res, next) => {
-  // Get project and create a new process entry
-  console.log("entrou")
-  console.log(req.params.user, req.params.project, req.params.img)
   Project.getOne(req.params.user, req.params.project)
     .then(async (project) => {
+
+      // 🔥 NOVO: validação igual ao processamento final
+      if (project.tools.length === 0) {
+        return res.status(400).jsonp("No tools selected");
+      }
+
+      const tool = project.tools.filter((t) => t.position == 0)[0];
+      if (!tool) {
+        return res.status(400).jsonp("No tools selected");
+      }
+
+      const tool_name = tool.procedure;
+      const params = tool.params;
+      // ----------------------------------------------------------
+
       const prev_preview = await Preview.getAll(
         req.params.user,
         req.params.project
       );
 
-      for(let p of prev_preview){
+      for (let p of prev_preview) {
         await delete_image(
           req.params.user,
           req.params.project,
@@ -547,10 +560,6 @@ router.post("/:user/:project/preview/:img", (req, res, next) => {
         );
       }
 
-      // Remove previous preview
-      if (prev_preview !== null && prev_preview !== undefined) {
-      }
-
       const source_path = `/../images/users/${req.params.user}/projects/${req.params.project}/src`;
       const result_path = `/../images/users/${req.params.user}/projects/${req.params.project}/preview`;
 
@@ -560,14 +569,12 @@ router.post("/:user/:project/preview/:img", (req, res, next) => {
       if (!fs.existsSync(path.join(__dirname, result_path)))
         fs.mkdirSync(path.join(__dirname, result_path), { recursive: true });
 
-      // Retrive image information
       const img = project.imgs.filter((i) => i._id == req.params.img)[0];
       const msg_id = `preview-${uuidv4()}`;
       const timestamp = new Date().toISOString();
       const og_img_uri = img.og_uri;
       const img_id = img._id;
 
-      // Retrieve image and store it using file system
       const resp = await get_image_docker(
         req.params.user,
         req.params.project,
@@ -577,23 +584,17 @@ router.post("/:user/:project/preview/:img", (req, res, next) => {
       const url = resp.data.url;
 
       const img_resp = await axios.get(url, { responseType: "stream" });
-
       const writer = fs.createWriteStream(og_img_uri);
 
-      // Use a Promise to handle the stream completion
       await new Promise((resolve, reject) => {
         writer.on("finish", resolve);
         writer.on("error", reject);
-        img_resp.data.pipe(writer); // Pipe AFTER setting up the event handlers
+        img_resp.data.pipe(writer);
       });
 
       const img_name_parts = img.new_uri.split("/");
       const img_name = img_name_parts[img_name_parts.length - 1];
       const new_img_uri = `./images/users/${req.params.user}/projects/${req.params.project}/preview/${img_name}`;
-
-      const tool = project.tools.filter((t) => t.position == 0)[0];
-      const tool_name = tool.procedure;
-      const params = tool.params;
 
       const process = {
         user_id: req.params.user,
@@ -605,9 +606,8 @@ router.post("/:user/:project/preview/:img", (req, res, next) => {
         new_img_uri: new_img_uri,
       };
 
-      // Making sure database entry is created before sending message to avoid conflicts
       Process.create(process)
-        .then((_) => {
+        .then(() => {
           send_msg_tool(
             msg_id,
             timestamp,
@@ -618,11 +618,11 @@ router.post("/:user/:project/preview/:img", (req, res, next) => {
           );
           res.sendStatus(201);
         })
-        .catch((_) =>
+        .catch(() =>
           res.status(603).jsonp(`Error creating preview process request`)
         );
     })
-    .catch((_) => res.status(501).jsonp(`Error acquiring user's project`));
+    .catch(() => res.status(501).jsonp(`Error acquiring user's project`));
 });
 
 // Add new image to a project
