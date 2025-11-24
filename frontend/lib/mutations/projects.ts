@@ -14,6 +14,7 @@ import {
   updateProject,
   updateProjectTool,
   previewProjectImage,
+  cancelProjectProcess, 
 } from "../projects";
 import { createBlobUrlFromFile, downloadBlob } from "../utils";
 import { validateSession, SessionData } from "../session";
@@ -158,7 +159,7 @@ export const useProcessProject = () => {
       const raw = localStorage.getItem("session");
 
       if (!raw) {
-        // Se não houver sessão, pelo menos limpamos a query "session"
+        // Se não houver sessão, pelo menos limpa-se a query "session"
         qc.invalidateQueries({ refetchType: "all", queryKey: ["session"] });
         return;
       }
@@ -180,7 +181,7 @@ export const useProcessProject = () => {
         // Guarda a sessão nova no localStorage
         localStorage.setItem("session", JSON.stringify(newSession));
 
-        // 2) Atualiza diretamente a cache da query "session"
+        // Atualiza diretamente a cache da query "session"
         qc.setQueryData(["session"], newSession);
 
         window.dispatchEvent(new Event("session-updated"));
@@ -272,3 +273,10 @@ export const useClearProjectTools = (
     },
   });
 };
+
+  export const useCancelProjectProcess = () => {
+    return useMutation({
+      mutationFn: cancelProjectProcess,
+    });
+  };
+

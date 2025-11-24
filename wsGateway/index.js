@@ -52,7 +52,7 @@ function process_msg() {
                 const error_code = msg_content.errorCode;
                 const error_msg = msg_content.errorMsg;
 
-                io.to(user).emit("preview-error", JSON.stringify({ 'error_code': error_code, 'error_msg': error_msg }));
+                io.to(user).emit("preview-error", { error_code, error_msg }); 
 
                 return;
             }
@@ -63,11 +63,12 @@ function process_msg() {
         }
 
         else if (/update-client-process/.test(msg_id)) {
+
             if (status == "error") {
                 const error_code = msg_content.errorCode;
                 const error_msg = msg_content.errorMsg;
 
-                io.to(user).emit("process-error", JSON.stringify({ 'error_code': error_code, 'error_msg': error_msg }));
+                io.to(user).emit("process-error", { error_code, error_msg }); 
 
                 return;
             }

@@ -10,6 +10,7 @@ import { LoaderCircle, OctagonAlert } from "lucide-react";
 import { useRegister } from "@/lib/mutations/session";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
+import { getErrorMessage } from "@/lib/error-messages";
 
 export function RegisterForm({
   className,
@@ -50,8 +51,7 @@ export function RegisterForm({
         },
         onError: (error) => {
           toast({
-            title: "Ups! An error occurred.",
-            description: error.message,
+            ...getErrorMessage("auth-register", error),
             variant: "destructive",
           });
         },

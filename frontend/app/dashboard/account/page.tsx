@@ -23,6 +23,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { OctagonAlert } from "lucide-react";
+import { getErrorMessage } from "@/lib/error-messages";
 
 export default function Account() {
   const session = useSession();
@@ -86,9 +87,10 @@ export default function Account() {
           });
         },
         onError: (error) => {
+          const { title, description } = getErrorMessage("account-profile", error);
           toast({
-            title: "Ups! An error occurred.",
-            description: error.message,
+            title,
+            description,
             variant: "destructive",
           });
         },
@@ -125,9 +127,10 @@ export default function Account() {
                 setConfirmPassword("");
               },
               onError: (error) => {
+                const { title, description } = getErrorMessage("account-password", error);
                 toast({
-                  title: "Ups! An error occurred.",
-                  description: error.message,
+                  title,
+                  description,
                   variant: "destructive",
                 });
               },

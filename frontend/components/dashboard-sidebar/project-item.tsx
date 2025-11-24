@@ -28,6 +28,7 @@ import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useSession } from "@/providers/session-provider";
 import { Project } from "@/lib/projects";
+import { getErrorMessage } from "@/lib/error-messages";
 
 export default function ProjectItem({ p }: { p: Project }) {
   const router = useRouter();
@@ -51,15 +52,30 @@ export default function ProjectItem({ p }: { p: Project }) {
   );
 
   useEffect(() => {
-    if (deleteProject.isError || updateProject.isError) {
+    if (deleteProject.isError) {
+      const { title, description } = getErrorMessage(
+        "project-delete",
+        deleteProject.error,
+      );
       toast({
-        title: "Ups! An error occurred.",
-        description:
-          deleteProject.error?.message || updateProject.error?.message,
+        title,
+        description,
         variant: "destructive",
       });
-      if (deleteProject.isError) deleteProject.reset();
-      if (updateProject.isError) updateProject.reset();
+      deleteProject.reset();
+    }
+
+    if (updateProject.isError) {
+      const { title, description } = getErrorMessage(
+        "project-update",
+        updateProject.error,
+      );
+      toast({
+        title,
+        description,
+        variant: "destructive",
+      });
+      updateProject.reset();
     }
   }, [deleteProject, updateProject, toast]);
 

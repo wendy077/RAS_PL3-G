@@ -18,8 +18,8 @@ module.exports.getOne = async (user_id, project_id, process_id) => {
   }).exec();
 };
 
-module.exports.getOne = async (msg_id) => {
-  return await Process.findOne({ msg_id: msg_id }).exec();
+module.exports.getOneByMsgId = async (msg_id) => {
+  return await Process.findOne({ msg_id }).exec();
 };
 
 module.exports.create = async (process) => {

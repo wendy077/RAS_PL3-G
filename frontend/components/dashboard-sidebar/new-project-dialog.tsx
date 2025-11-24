@@ -16,6 +16,7 @@ import ImageSubmissionArea from "../image-submission-area";
 import { useSession } from "@/providers/session-provider";
 import { LoaderCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { getErrorMessage } from "@/lib/error-messages";
 
 export default function NewProjectDialog({
   files = [],
@@ -48,14 +49,16 @@ export default function NewProjectDialog({
         onSuccess: (project) => {
           setOpen(false);
           toast({
-            title: "Project created successfully.",
+              title: "Projeto criado com sucesso",
+              description: "As imagens foram adicionadas ao novo projeto.",
           });
           if (project) router.push(`/dashboard/${project._id}`);
         },
         onError: (error) => {
+          const { title, description } = getErrorMessage("project-create", error);
           toast({
-            title: "Ups! An error occurred.",
-            description: error.message,
+            title,
+            description,
             variant: "destructive",
           });
         },

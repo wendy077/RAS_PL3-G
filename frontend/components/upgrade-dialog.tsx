@@ -28,6 +28,7 @@ import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 import CardForm from "@/components/card-form";
 import validator from "validator";
+import { getErrorMessage } from "@/lib/error-messages";
 
 export function UpgradeDialog({
   className,
@@ -118,9 +119,10 @@ export function UpgradeDialog({
           window.location.reload();
         },
         onError: (error) => {
+          const { title, description } = getErrorMessage("upgrade", error);
           toast({
-            title: "Ups! An error occurred.",
-            description: error.message,
+            title,
+            description,
             variant: "destructive",
           });
           setIsSubmitting(false);

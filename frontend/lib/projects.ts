@@ -528,21 +528,60 @@ export const processProject = async ({
   pid: string;
   token: string;
 }) => {
-  const response = await api.post<string>(
-    `/projects/${uid}/${pid}/process`,
-    {},
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
+  try {
+    const response = await api.post<string>(
+      `/projects/${uid}/${pid}/process`,
+      {},
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       },
-    },
-  );
+    );
 
-  // Aceitar 200 ou 201
-  if (response.status !== 200 && response.status !== 201) {
-    throw new Error("Failed to request project processing");
+    if (response.status !== 200 && response.status !== 201) {
+      throw new Error("Failed to request project processing");
+    }
+
+    return response.data;
+  } catch (error: unknown) {
+
+    if (axios.isAxiosError(error)) {
+      const backendMsg = error.response?.data;
+
+      // Caso de limite diário
+      if (backendMsg === "No more daily_operations available") {
+        throw new Error("No more daily_operations available");
+      }
+
+      // Outros erros: devolve a mensagem normal do Axios
+      throw new Error(error.message);
+    }
+
+    // Se for outro tipo de erro, relança
+    throw error;
   }
-
-  // devolve o id da tarefa se for preciso mais à frente 
-  return response.data;
 };
+
+  export const cancelProjectProcess = async ({
+    uid,
+    pid,
+    token,
+  }: {
+    uid: string;
+    pid: string;
+    token: string;
+  }) => {
+    const response = await api.delete(
+      `/projects/${uid}/${pid}/process`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    );
+
+    if (response.status !== 200) {
+      throw new Error("Failed to cancel project processing");
+    }
+  };

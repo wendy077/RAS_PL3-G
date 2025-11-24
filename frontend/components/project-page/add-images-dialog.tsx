@@ -18,6 +18,7 @@ import { createBlobUrlFromFile } from "@/lib/utils";
 import { useProjectInfo } from "@/providers/project-provider";
 import { useSession } from "@/providers/session-provider";
 import { useToast } from "@/hooks/use-toast";
+import { getErrorMessage } from "@/lib/error-messages";
 
 export function AddImagesDialog() {
   const [open, setOpen] = useState(false);
@@ -57,9 +58,10 @@ export function AddImagesDialog() {
           setOpen(false);
         },
         onError: (error) => {
+          const { title, description } = getErrorMessage("project-upload", error);
           toast({
-            title: "Ups! An error occurred.",
-            description: error.message,
+            title,
+            description,
             variant: "destructive",
           });
         },

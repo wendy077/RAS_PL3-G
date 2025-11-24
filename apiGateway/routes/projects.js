@@ -153,6 +153,20 @@ router.get(
   }
 );
 
+  // Cancelar processamento de um projeto
+  router.delete("/:user/:project/process", auth.checkToken, function (req, res, next) {
+    axios
+      .delete(
+        projectsURL + `${req.params.user}/${req.params.project}/process`,
+        { httpsAgent: httpsAgent }
+      )
+      .then((resp) => res.sendStatus(resp.status))
+      .catch((err) =>
+        res.status(500).jsonp("Error cancelling project processing")
+      );
+  });
+
+
 /**
  * Get project's processment result
  * @body Empty
@@ -301,9 +315,16 @@ router.post(
         { httpsAgent: httpsAgent }
       )
       .then((resp) => res.status(201).jsonp(resp.data))
-      .catch((err) =>
-        res.status(500).jsonp("Error requesting project processing")
-      );
+      .catch((err) => {
+        if (err.response) {
+          return res
+            .status(err.response.status)
+            .jsonp(err.response.data);
+        }
+
+        console.error("Error requesting project processing:", err.message);
+        return res.status(500).jsonp("Error requesting project processing");
+      });
   }
 );
 

@@ -10,6 +10,7 @@ import { LoaderCircle, OctagonAlert } from "lucide-react";
 import { useLogin } from "@/lib/mutations/session";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
+import { getErrorMessage } from "@/lib/error-messages";
 
 export function LoginForm({
   className,
@@ -40,9 +41,10 @@ export function LoginForm({
           router.replace("/dashboard");
         },
         onError: (error) => {
+          const { title, description } = getErrorMessage("auth-login", error);
           toast({
-            title: "Ups! An error occurred.",
-            description: error.message,
+            title,
+            description,
             variant: "destructive",
           });
         },

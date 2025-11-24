@@ -26,6 +26,7 @@ import * as ProjectTypes from "@/lib/projects";
 import { ProjectImage } from "./project-image";
 import { useQueryClient } from "@tanstack/react-query";
 import ProjectText from "./project-text";
+import { getAiErrorMessage } from "@/lib/error-messages"; 
 
 export function ProjectImageList({
   setCurrentImageId,
@@ -57,24 +58,47 @@ export function ProjectImageList({
   const qc = useQueryClient();
   const socket = useGetSocket(session.token);
 
-  useEffect(() => {
-    let active = true;
 
-    if (active && socket.data) {
-      socket.data.on("preview-error", (msg) => {
-        if (active) {
-          const msg_content = JSON.parse(msg);
-          const error_code = msg_content.error_code;
-          const error_msg = msg_content.error_msg;
-          toast({
-            title: "Ups! An error occurred.",
-            description: `${error_code}: ${error_msg}`,
-            variant: "destructive",
-          });
-        }
-      });
+useEffect(() => {
+  let active = true;
 
-      socket.data.on("preview-ready", (msg) => {
+  if (active && socket.data) {
+    socket.data.on("preview-error", (msg: string) => {
+      if (!active) return;
+
+      try {
+        const msg_content = JSON.parse(msg) as {
+          error_code?: number;
+          error_msg?: string;
+        };
+
+        const error_code = msg_content.error_code;
+        const error_msg = msg_content.error_msg;
+
+        console.error("preview-error", error_code, error_msg);
+
+        const { title, description } = getAiErrorMessage(
+          error_code,
+          error_msg,
+        );
+
+        toast({
+          title,
+          description,
+          variant: "destructive",
+        });
+      } catch (e) {
+
+        const { title, description } = getAiErrorMessage();
+        toast({
+          title,
+          description,
+          variant: "destructive",
+        });
+      }
+    });
+
+      socket.data.on("preview-ready", (msg: string) => {
         if (active) {
           const msg_content = JSON.parse(msg) as {
             imageUrl: string;

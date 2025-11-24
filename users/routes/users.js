@@ -273,6 +273,56 @@ router.put("/:user/process/:advanced_tools", function (req, res, next) {
     .catch((_) => res.status(701).jsonp(`Error acquiring user's information.`));
 });
 
+// Refund de operações quando um processamento é cancelado
+router.post("/:user/process/refund/:advanced_tools", function (req, res, next) {
+  User.getOne(req.params.user)
+    .then((user) => {
+      const op_num = parseInt(req.params.advanced_tools);
+
+      if (!Number.isFinite(op_num) || op_num <= 0) {
+        return res.status(400).jsonp("Invalid operations number");
+      }
+
+      // Premium não precisa de refund (não tem limite)
+      if (user.type === "premium") {
+        return res.status(200).jsonp(true);
+      }
+
+      const date = get_cur_date();
+      const process_date = new Date(date.year, date.month, date.day);
+
+      let op = null;
+
+      if (
+        user.operations.filter(
+          (o) => o.day.getTime() === process_date.getTime(),
+        ).length > 0
+      ) {
+        op = user.operations.filter(
+          (o) => o.day.getTime() === process_date.getTime(),
+        )[0];
+        user.operations.remove(op);
+      } else {
+        return res.status(200).jsonp(true);
+      }
+
+      // tirar as operações gastas, sem ir abaixo de 0
+      op.processed = Math.max(0, op.processed - op_num);
+
+      // só voltamos a guardar se ainda houver algo processado hoje
+      if (op.processed > 0) {
+        user.operations.push(op);
+      }
+
+      User.update(req.params.user, user)
+        .then((_) => res.status(200).jsonp(true))
+        .catch((_) =>
+          res.status(704).jsonp(`Error updating user's information`),
+        );
+    })
+    .catch((_) => res.status(701).jsonp(`Error acquiring user's information.`));
+});
+
 // Delete a user
 router.delete("/:user", function (req, res, next) {
   User.delete(req.params.user)

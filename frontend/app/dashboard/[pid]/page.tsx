@@ -13,13 +13,14 @@ import {
 } from "@/lib/queries/projects";
 import Loading from "@/components/loading";
 import { ProjectProvider } from "@/providers/project-provider";
-import { use, useEffect, useLayoutEffect, useState } from "react";
+import { use, useEffect, useLayoutEffect, useState, useRef } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useSession } from "@/providers/session-provider";
 import {
   useDownloadProject,
   useDownloadProjectResults,
   useProcessProject,
+  useCancelProjectProcess, // <-- novo
 } from "@/lib/mutations/projects";
 import { useToast } from "@/hooks/use-toast";
 import { ProjectImage } from "@/lib/projects";
@@ -32,6 +33,7 @@ import { ModeToggle } from "@/components/project-page/mode-toggle";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useUpdateSession } from "@/lib/mutations/session";
+import { getErrorMessage } from "@/lib/error-messages";
 
 export default function Project({
   params,
@@ -44,6 +46,7 @@ export default function Project({
   const project = useGetProject(session.user._id, pid, session.token);
   const downloadProjectImages = useDownloadProject();
   const processProject = useProcessProject();
+  const cancelProcess = useCancelProjectProcess(); // <-- novo
   const downloadProjectResults = useDownloadProjectResults();
   const { toast } = useToast();
   const socket = useGetSocket(session.token);
@@ -60,6 +63,9 @@ export default function Project({
   const [processingProgress, setProcessingProgress] = useState<number>(0);
   const [processingSteps, setProcessingSteps] = useState<number>(1);
   const [waitingForPreview, setWaitingForPreview] = useState<string>("");
+
+  // flag para ignorar updates depois de cancelar
+  const ignoreUpdatesRef = useRef(false);
 
   const totalProcessingSteps =
     (project.data?.tools.length ?? 0) * (project.data?.imgs.length ?? 0);
@@ -81,42 +87,70 @@ export default function Project({
 
   useEffect(() => {
     function onProcessUpdate() {
-      setProcessingSteps((prev) => prev + 1);
+      
+      // se já cancelámos ou já não estamos em processamento, ignora tudo
+      if (ignoreUpdatesRef.current || !processing) return;
 
-      const progress = Math.min(
-        Math.round((processingSteps * 100) / totalProcessingSteps),
-        100,
-      );
+      setProcessingSteps((prev) => {
+        const nextSteps = prev + 1;
 
-      setProcessingProgress(progress);
-      if (processingSteps >= totalProcessingSteps) {
-        setTimeout(() => {
-          projectResults.refetch().then(() => {
-            setProcessing(false);
-            if (!isMobile) sidebar.setOpen(true);
-            setProcessingProgress(0);
-            setProcessingSteps(1);
-            router.push("?mode=results&view=grid");
-          });
-        }, 2000);
-      }
+        const progress =
+          totalProcessingSteps > 0
+            ? Math.min(Math.round((nextSteps * 100) / totalProcessingSteps), 100)
+            : 100;
+
+        setProcessingProgress(progress);
+
+        if (nextSteps >= totalProcessingSteps) {
+          setTimeout(() => {
+
+            // se entretanto cancelámos, não faz mais nada
+            if (ignoreUpdatesRef.current) return;
+
+            projectResults.refetch().then(() => {
+              setProcessing(false);
+              if (!isMobile) sidebar.setOpen(true);
+              setProcessingProgress(0);
+              setProcessingSteps(1);
+              router.push("?mode=results&view=grid");
+            });
+          }, 2000);
+        }
+
+        return nextSteps;
+      });
+    }
+
+    function onProcessError(payload: { error_code: string; error_msg: string }) {
+      console.error("process-error", payload);
+      setProcessing(false);
+      setProcessingProgress(0);
+      setProcessingSteps(1);
+      toast({
+        title: "Falha no processamento",
+        description:
+          payload?.error_msg ||
+          "Ocorreu um erro ao processar o projeto. Tenta novamente.",
+        variant: "destructive",
+      });
     }
 
     let active = true;
 
     if (active && socket.data) {
-      socket.data.on("process-update", () => {
-        if (active) onProcessUpdate();
-      });
+      socket.data.on("process-update", onProcessUpdate);
+      socket.data.on("process-error", onProcessError);
     }
 
     return () => {
       active = false;
-      if (socket.data) socket.data.off("process-update", onProcessUpdate);
+      if (socket.data) {
+        socket.data.off("process-update", onProcessUpdate);
+        socket.data.off("process-error", onProcessError);
+      }
     };
   }, [
     pid,
-    processingSteps,
     qc,
     router,
     session.token,
@@ -126,6 +160,8 @@ export default function Project({
     sidebar,
     isMobile,
     projectResults,
+    toast,
+    processing
   ]);
 
   if (project.isError)
@@ -154,6 +190,60 @@ export default function Project({
       </div>
     );
 
+const handleCancel = () => {
+  // ignorar updates vindos do socket
+  ignoreUpdatesRef.current = true;
+
+  // parar tudo no UI
+  setProcessing(false);
+  setProcessingProgress(0);
+  setProcessingSteps(1);
+
+  // reabrir a sidebar em desktop 
+  if (!isMobile) {
+    sidebar.setOpen(true);
+  }
+
+  // limpar estado de preview (se alguma tool estava a fazer preview)
+  setWaitingForPreview("");
+  
+  // cancelar no backend
+  cancelProcess.mutate(
+    {
+      uid: session.user._id,
+      pid: project.data._id,
+      token: session.token,
+    },
+    {
+      onSuccess: () => {
+        // voltar a ir buscar a sessão para atualizar remaining_operations
+        updateSession.mutate({
+          userId: session.user._id,
+          token: session.token,
+        });
+
+        toast({
+          title: "Processamento cancelado",
+          description:
+            "O processamento deste projeto foi cancelado. Podes ajustar as ferramentas e voltar a tentar.",
+        });
+      },
+      
+      onError: (error) => {
+        const { title, description } = getErrorMessage(
+          "project-cancel-process",
+          error,
+        );
+        toast({
+          title,
+          description,
+          variant: "destructive",
+        });
+      },
+    },
+  );
+};
+  
   return (
     <ProjectProvider
       project={project.data}
@@ -191,6 +281,7 @@ export default function Project({
                         },
                         {
                           onSuccess: () => {
+                            ignoreUpdatesRef.current = false;   // certifica que vamos aceitar updates
                             setProcessing(true);
                             sidebar.setOpen(false);
                           
@@ -199,12 +290,14 @@ export default function Project({
                             token: session.token,
                           });
                         },
-                          onError: (error) =>
+                          onError: (error: unknown) => {
+                            const { title, description } = getErrorMessage("project-process", error);
                             toast({
-                              title: "Ups! An error occurred.",
-                              description: error.message,
+                              title,
+                              description,
                               variant: "destructive",
-                            }),
+                            });
+                          },
                         },
                       );
                     }}
@@ -280,6 +373,18 @@ export default function Project({
               <LoaderCircle className="size-[1em] animate-spin" />
             </div>
             <Progress value={processingProgress} className="w-96" />
+
+            <Button
+              variant="outline"
+              disabled={cancelProcess.isPending}
+              onClick={handleCancel}
+            >
+              {cancelProcess.isPending ? (
+                <LoaderCircle className="size-[1em] animate-spin" />
+              ) : (
+                "Cancelar"
+              )}
+            </Button>
           </Card>
         </div>
       </Transition>

@@ -84,8 +84,11 @@ function process_msg() {
 
       const user_msg_id = `update-client-process-${uuidv4()}`;
 
-      const process = await Process.getOne(msg_id);
+      const process = await Process.getOneByMsgId(msg_id);
 
+      if (!process) {
+        return;
+      }
       const prev_process_input_img = process.og_img_uri;
       const prev_process_output_img = process.new_img_uri;
       
@@ -1075,6 +1078,55 @@ router.delete("/:user/:project/tool/:tool", (req, res, next) => {
       }
     })
     .catch((_) => res.status(501).jsonp(`Error acquiring user's project`));
+});
+
+// Cancelar processamento de um projeto 
+router.delete("/:user/:project/process", async (req, res, next) => {
+  try {
+    // 1) tentar devolver operações ao utilizador
+    try {
+      const project = await Project.getOne(req.params.user, req.params.project);
+      const adv_tools = advanced_tool_num(project);
+
+      if (adv_tools > 0) {
+        await axios.post(
+          users_ms + `${req.params.user}/process/refund/${adv_tools}`,
+          {},
+          { httpsAgent: httpsAgent },
+        );
+      }
+    } catch (err) {
+      console.error("Error refunding operations on cancel:", err);
+    }
+
+    // 2) apagar processos em curso
+    const processes = await Process.getProject(
+      req.params.user,
+      req.params.project,
+    );
+
+    if (processes && processes.length > 0) {
+      for (const p of processes) {
+        await Process.delete(p.user_id, p.project_id, p._id);
+      }
+    }
+
+    // 3) limpar diretórios temporários locais (não mexe no MinIO)
+    const basePath = `/../images/users/${req.params.user}/projects/${req.params.project}`;
+    const tmpDirs = ["src", "out", "preview"];
+
+    for (const dir of tmpDirs) {
+      const full = path.join(__dirname, `${basePath}/${dir}`);
+      if (fs.existsSync(full)) {
+        fs.rmSync(full, { recursive: true, force: true });
+      }
+    }
+
+    return res.sendStatus(200);
+  } catch (err) {
+    console.error("Error cancelling project processing:", err);
+    return res.status(500).jsonp("Error cancelling project processing");
+  }
 });
 
 module.exports = { router, process_msg };

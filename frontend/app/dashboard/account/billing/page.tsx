@@ -54,6 +54,7 @@ import CardForm from "@/components/card-form";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { OctagonAlert } from "lucide-react";
 import validator from "validator";
+import { getErrorMessage } from "@/lib/error-messages";
 
 export default function Billing() {
   const session = useSession();
@@ -117,9 +118,10 @@ export default function Billing() {
           window.location.reload();
         },
         onError: (error) => {
+          const { title, description } = getErrorMessage("billing", error);
           toast({
-            title: "Ups! An error occurred.",
-            description: error.message,
+            title,
+            description,
             variant: "destructive",
           });
         },
@@ -178,9 +180,10 @@ export default function Billing() {
         window.location.reload();
       },
       onError: (error) => {
+        const { title, description } = getErrorMessage("billing", error);
         toast({
-          title: "Ups! An error occurred.",
-          description: error.message,
+          title,
+          description,
           variant: "destructive",
         });
       },
@@ -213,9 +216,10 @@ export default function Billing() {
           window.location.reload();
         },
         onError: (error) => {
+          const { title, description } = getErrorMessage("billing", error);
           toast({
-            title: "Ups! An error occurred.",
-            description: error.message,
+            title,
+            description,
             variant: "destructive",
           });
         },

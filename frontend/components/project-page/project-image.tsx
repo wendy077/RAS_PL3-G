@@ -28,6 +28,8 @@ import { useSession } from "@/providers/session-provider";
 import { useToast } from "@/hooks/use-toast";
 import type { ProjectImage } from "@/lib/projects";
 import { useSearchParams } from "next/navigation";
+import { getErrorMessage } from "@/lib/error-messages";
+
 interface ImageItemProps {
   image: ProjectImage;
   animation?: boolean;
@@ -116,9 +118,10 @@ export function ProjectImage({ image, animation = true }: ImageItemProps) {
                     });
                   },
                   onError: (error) => {
+                    const { title, description } = getErrorMessage("project-download", error);
                     toast({
-                      title: "Ups! An error occurred.",
-                      description: error.message,
+                      title,
+                      description,
                       variant: "destructive",
                     });
                   },
@@ -154,9 +157,10 @@ export function ProjectImage({ image, animation = true }: ImageItemProps) {
                     });
                   },
                   onError: (error) => {
+                    const { title, description } = getErrorMessage("project-delete", error);
                     toast({
-                      title: "Ups! An error occurred.",
-                      description: error.message,
+                      title,
+                      description,
                       variant: "destructive",
                     });
                   },
