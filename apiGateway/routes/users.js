@@ -4,17 +4,10 @@ var router = express.Router();
 const axios = require("axios");
 
 const https = require("https");
-const fs = require("fs");
-
 const auth = require("../auth/auth");
 
-const key = fs.readFileSync(__dirname + "/../certs/selfsigned.key");
-const cert = fs.readFileSync(__dirname + "/../certs/selfsigned.crt");
-
 const httpsAgent = new https.Agent({
-  rejectUnauthorized: false, // (NOTE: this will disable client verification)
-  cert: cert,
-  key: key,
+  rejectUnauthorized: false,
 });
 
 const usersURL = "https://users:10001/";
@@ -72,9 +65,23 @@ router.get("/:user", function (req, res, next) {
  */
 router.post("/", function (req, res, next) {
   axios
-    .post(usersURL, req.body, { httpsAgent: httpsAgent })
+    .post(usersURL, req.body, { httpsAgent })
     .then((resp) => res.status(201).jsonp(resp.data))
-    .catch((err) => res.status(500).jsonp("Error registering new user"));
+    .catch((err) => {
+      console.error("GATEWAY REGISTER ERROR FULL OBJECT:");
+      console.error(err);                // <-- log total
+      console.error("GATEWAY REGISTER ERROR RESPONSE:");
+      console.error(err.response?.data); // <-- resposta do users-ms
+      console.error("GATEWAY REGISTER ERROR STATUS:");
+      console.error(err.response?.status);
+
+      if (err.response) {
+        // devolve o status e body reais do microserviço de users
+        return res.status(err.response.status).jsonp(err.response.data);
+      }
+
+      return res.status(500).jsonp("Error registering new user");
+    });
 });
 
 /**
@@ -110,9 +117,24 @@ router.put("/:user", auth.checkToken, function (req, res, next) {
  */
 router.delete("/:user", auth.checkToken, function (req, res, next) {
   axios
-    .delete(usersURL + `${req.params.user}`, { httpsAgent: httpsAgent })
-    .then((_) => res.sendStatus(204))
-    .catch((err) => res.status(500).jsonp("Error deleting user"));
+    .delete(usersURL + `${req.params.user}`, {
+      httpsAgent,
+      headers: {
+        Authorization: req.headers["authorization"],
+      },
+    })
+    .then(() => res.sendStatus(204)) 
+    .catch((err) => {
+      console.error(
+        "Gateway delete user error:",
+        err.response?.status,
+        err.response?.data
+      );
+      if (err.response) {
+        return res.status(err.response.status).jsonp(err.response.data);
+      }
+      return res.status(500).jsonp("Error deleting user");
+    });
 });
 
 module.exports = router;

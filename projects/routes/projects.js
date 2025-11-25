@@ -281,6 +281,35 @@ function process_msg() {
   });
 }
 
+async function deleteProjectAndResources(userId, projectId) {
+  const project = await Project.getOne(userId, projectId);
+
+  // apagar imagens
+  const previous_img = JSON.parse(JSON.stringify(project["imgs"]));
+  for (let img of previous_img) {
+    await delete_image(userId, projectId, "src", img.og_img_key);
+    project["imgs"].remove(img);
+  }
+
+  // apagar resultados
+  const results = await Result.getAll(userId, projectId);
+  for (let r of results) {
+    await delete_image(userId, projectId, "out", r.img_key);
+    await Result.delete(r.user_id, r.project_id, r.img_id);
+  }
+
+  // apagar previews
+  const previews = await Preview.getAll(userId, projectId);
+  for (let p of previews) {
+    await delete_image(userId, projectId, "preview", p.img_key);
+    await Preview.delete(p.user_id, p.project_id, p.img_id);
+  }
+
+  // apagar o próprio projeto
+  await Project.delete(userId, projectId);
+}
+
+
 // Get list of all projects from a user
 router.get("/:user", (req, res, next) => {
   Project.getAll(req.params.user)
@@ -944,44 +973,34 @@ router.put("/:user/:project/tool/:tool", (req, res, next) => {
 });
 
 // Delete a project
-router.delete("/:user/:project", (req, res, next) => {
-  Project.getOne(req.params.user, req.params.project).then(async (project) => {
-    // Remove all images related to the project from the file system
-    const previous_img = JSON.parse(JSON.stringify(project["imgs"]));
-    for (let img of previous_img) {
-      await delete_image(
-        req.params.user,
-        req.params.project,
-        "src",
-        img.og_img_key
-      );
-      project["imgs"].remove(img); // Not really needed, but in case of error serves as reference point
-    }
-
-    const results = await Result.getAll(req.params.user, req.params.project);
-
-    const previews = await Preview.getAll(req.params.user, req.params.project);
-
-    for (let r of results) {
-      await delete_image(req.params.user, req.params.project, "out", r.img_key);
-      await Result.delete(r.user_id, r.project_id, r.img_id);
-    }
-
-    for (let p of previews) {
-      await delete_image(
-        req.params.user,
-        req.params.project,
-        "preview",
-        p.img_key
-      );
-      await Preview.delete(p.user_id, p.project_id, p.img_id);
-    }
-
-    Project.delete(req.params.user, req.params.project)
-      .then((_) => res.sendStatus(204))
-      .catch((_) => res.status(504).jsonp(`Error deleting user's project`));
-  });
+router.delete("/:user/:project", async (req, res, next) => {
+  try {
+    await deleteProjectAndResources(req.params.user, req.params.project);
+    return res.sendStatus(204);
+  } catch (err) {
+    console.error("Error deleting user's project:", err);
+    return res.status(504).jsonp(`Error deleting user's project`);
+  }
 });
+
+// Delete ALL projects from a user (used when deleting an account)
+router.delete("/:user", async (req, res, next) => {
+  const userId = req.params.user;
+
+  try {
+    const projects = await Project.getAll(userId);
+
+    for (const p of projects) {
+      await deleteProjectAndResources(userId, p._id);
+    }
+
+    return res.sendStatus(204);
+  } catch (err) {
+    console.error("Error deleting all projects from user:", err);
+    return res.status(504).jsonp(`Error deleting user's projects`);
+  }
+});
+
 
 // Delete an image from a project
 router.delete("/:user/:project/img/:img", (req, res, next) => {

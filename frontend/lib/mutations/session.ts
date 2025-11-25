@@ -1,4 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { deleteAccount } from "../users";
+import { useRouter } from "next/navigation";
 import {
   login,
   register,
@@ -126,6 +128,31 @@ export const useUpdateUserPassword = () => {
     mutationFn: updatePassword,
     onSuccess: () => {
       qc.invalidateQueries({ refetchType: "all", queryKey: ["session"] });
+    },
+  });
+};
+
+export const useDeleteAccount = (uid: string, token: string) => {
+  const qc = useQueryClient();
+  const router = useRouter();
+
+  return useMutation({
+    mutationFn: () => deleteAccount(uid, token),
+    onSuccess: () => {
+      // limpar sessão local
+      localStorage.removeItem("session");
+      window.dispatchEvent(new Event("session-updated"));
+
+      // limpar cache relacionada
+      qc.removeQueries({ queryKey: ["session"] });
+      qc.removeQueries({ queryKey: ["projects"] });
+      qc.removeQueries({ queryKey: ["project"] });
+      qc.removeQueries({ queryKey: ["projectImages"] });
+      qc.removeQueries({ queryKey: ["projectResults"] });
+      qc.removeQueries({ queryKey: ["socket"] });
+
+      // redirecionar para o login
+      router.push("/login");
     },
   });
 };

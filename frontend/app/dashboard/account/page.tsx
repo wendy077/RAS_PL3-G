@@ -24,6 +24,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { OctagonAlert } from "lucide-react";
 import { getErrorMessage } from "@/lib/error-messages";
+import { DeleteAccountButton } from "@/components/settings/delete-account-button";
 
 export default function Account() {
   const session = useSession();
@@ -280,6 +281,19 @@ export default function Account() {
                 <AlertDescription>{errorPassword}.</AlertDescription>
               </Alert>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Danger Zone — FORA da grid */}
+        <Card className="border-destructive/40 bg-destructive/10">
+          <CardHeader>
+            <CardTitle>Danger Zone</CardTitle>
+            <CardDescription>
+              Permanently delete your account and all associated data.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DeleteAccountButton />
           </CardContent>
         </Card>
       </div>

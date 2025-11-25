@@ -1,8 +1,29 @@
 var express = require("express");
 var router = express.Router();
 
-const User = require("../controllers/user");
+const axios = require("axios");
+const fs = require("fs");
+const https = require("https");
+
 const auth = require("../auth/auth");
+const User = require("../controllers/user");   
+
+// lê as chaves/certificados locais (estes ficheiros EXISTEM no api-gateway-ms)
+const key = fs.readFileSync(__dirname + "/../certs/selfsigned.key");
+const cert = fs.readFileSync(__dirname + "/../certs/selfsigned.crt");
+
+// agente HTTPS com cert + key
+const httpsAgent = new https.Agent({
+  rejectUnauthorized: false,
+  cert,
+  key,
+});
+
+// hostname interno do microserviço de users
+const usersURL = "https://users:10001/";
+
+// URL interna do microserviço de projects
+const projects_ms = "https://projects:10002/projects/";
 
 const max_free_daily_op = process.env.FREE_DAILY_OP || 5;
 
@@ -153,25 +174,40 @@ router.post("/", function (req, res, next) {
   const user = {
     name: req.body.name || undefined,
     email: req.body.email || undefined,
-    password: req.body.password || "",
     type: req.body.type || "free",
     operations: [],
   };
 
-  console.log(user);
-  console.log(req.body);
+  // Handle anonymous user properly
+  if (req.body.type === "anonymous") {
+    user.email = undefined;
+    user.password = "";
+  } else {
+    user.password = req.body.password;
+  }
+
+  console.log("---- USERS-MS: REGISTER REQUEST ----");
+  console.log("BODY:", req.body);
+  console.log("USER OBJECT BEFORE SAVE:", user);
+  console.log("User object to persist:", user);
 
   User.create(user)
-    .then((user) => {
-      const userResponse = removeSensitiveInfo(user);
-      const remaining_operations = getRemainingOperations(user);
+    .then((createdUser) => {
+      const userResponse = removeSensitiveInfo(createdUser);
+      const remaining_operations = getRemainingOperations(createdUser);
 
       res.status(201).jsonp({
         user: { ...userResponse, remaining_operations },
-        jwt: auth.get_jwt(user),
+        jwt: auth.get_jwt(createdUser),
       });
     })
-    .catch((_) => {
+    .catch((err) => {
+      console.error("USERS-MS ERROR CREATING USER:");
+      console.error(err);              // stack completo
+      console.error(err.message);
+      console.error(err?.errors);      // mongoose validation errors
+      console.error(err?.response?.data);
+
       res.status(702).jsonp("Error creating a new user.");
     });
 });
@@ -323,11 +359,53 @@ router.post("/:user/process/refund/:advanced_tools", function (req, res, next) {
     .catch((_) => res.status(701).jsonp(`Error acquiring user's information.`));
 });
 
-// Delete a user
-router.delete("/:user", function (req, res, next) {
-  User.delete(req.params.user)
-    .then((_) => res.sendStatus(204))
-    .catch((_) => res.status(705).jsonp(`Error deleting user's information`));
+// Delete a user + all related data (projects, daily ops, etc.)
+router.delete("/:user", async function (req, res, next) {
+  const userId = req.params.user;
+
+  try {
+    // Garantir que o user do token é o mesmo
+    // Se o API Gateway já valida isto, podes confiar nele.
+    if (!req.headers.authorization) {
+      return res.status(401).jsonp("Missing Authorization header");
+    }
+
+    const authHeader = req.headers.authorization;
+
+    // 1) Apagar projetos do utilizador no projects-ms
+    try {
+      await axios.delete(projects_ms + userId, {
+        httpsAgent,
+        headers: {
+          Authorization: authHeader,
+        },
+      });
+    } catch (err) {
+      console.error(
+        "Error deleting user's projects:",
+        err.response?.status,
+        err.response?.data
+      );
+      // Se for para falhar logo: return res.status(502).jsonp("Error deleting user's projects");
+      // Aqui estou a continuar mesmo que dê erro, para não bloquear o delete de conta.
+    }
+
+    // 2) Apagar o próprio utilizador
+    await User.delete(userId);
+
+    // 3) (Opcional) Apagar daily_operations associadas ao user
+    // if (dailyoperationsModel) {
+    //   await dailyoperationsModel.dailyOperation_deleteByUserId(userId);
+    // }
+
+    return res.sendStatus(204);
+  } catch (err) {
+    console.error("Error deleting user and related data:", err);
+    return res
+      .status(705)
+      .jsonp(`Error deleting user's information and related data`);
+  }
 });
+
 
 module.exports = router;
