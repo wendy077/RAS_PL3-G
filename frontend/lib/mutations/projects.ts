@@ -15,9 +15,11 @@ import {
   updateProjectTool,
   previewProjectImage,
   cancelProjectProcess, 
+  reorderProjectTools,   
 } from "../projects";
 import { createBlobUrlFromFile, downloadBlob } from "../utils";
 import { validateSession, SessionData } from "../session";
+import axios from "axios";
 
 
 export const useAddProject = (uid: string, token: string) => {
@@ -274,9 +276,28 @@ export const useClearProjectTools = (
   });
 };
 
+  export const useReorderProjectTools = (
+    uid: string,
+    pid: string,
+    token: string,
+  ) => {
+    const qc = useQueryClient();
+    return useMutation({
+      mutationFn: reorderProjectTools,
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ["project", uid, pid, token] });
+        qc.invalidateQueries({
+          refetchType: "all",
+          queryKey: ["projectResults", uid, pid, token],
+        });
+      },
+    });
+  };
+
   export const useCancelProjectProcess = () => {
     return useMutation({
       mutationFn: cancelProjectProcess,
     });
   };
+
 

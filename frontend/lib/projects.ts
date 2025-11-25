@@ -563,6 +563,37 @@ export const processProject = async ({
   }
 };
 
+  // Reordenar ferramentas de um projeto
+  export const reorderProjectTools = async ({
+    uid,
+    pid,
+    tools,
+    token,
+  }: {
+    uid: string;
+    pid: string;
+    tools: ProjectToolResponse[]; // mesma estrutura de `project.tools`
+    token: string;
+  }) => {
+    const response = await api.post(
+      `/projects/${uid}/${pid}/reorder`,
+      tools,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    );
+
+    // aceitar QUALQUER 2xx
+  if (response.status < 200 || response.status >= 300) {
+    console.error("Reorder failed, status:", response.status, response.data);
+    throw new Error("Failed to reorder tools");
+  }
+
+    return response.data;
+};
+
   export const cancelProjectProcess = async ({
     uid,
     pid,

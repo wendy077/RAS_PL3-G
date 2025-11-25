@@ -18,6 +18,7 @@ import { useClearProjectTools } from "@/lib/mutations/projects";
 import { useSession } from "@/providers/session-provider";
 import { useProjectInfo } from "@/providers/project-provider";
 import { Button } from "../ui/button";
+import { AppliedToolsList } from "./applied-tools-list";
 import {
   Dialog,
   DialogContent,
@@ -33,7 +34,11 @@ import { useState } from "react";
 export function Toolbar() {
   const searchParams = useSearchParams();
   const view = searchParams.get("view") ?? "grid";
-  const disabled = view === "grid";
+  const mode = searchParams.get("mode") ?? "edit";
+
+  // desativar ferramentas se estiver em grid OU em results
+  const disabled = view === "grid" || mode === "results";
+
   const project = useProjectInfo();
   const session = useSession();
 
@@ -46,8 +51,8 @@ export function Toolbar() {
   );
 
   return (
-    <div className="flex h-full w-14 flex-col justify-between items-center border-r bg-background p-2">
-      <div className="flex flex-col gap-2">
+    <div className="flex h-full w-24 flex-col justify-between items-stretch border-r bg-background p-2">
+      <div className="flex flex-col gap-2 items-center">
         <span className="text-sm text-gray-500">Tools</span>
         <BrightnessTool disabled={disabled} />
         <ContrastTool disabled={disabled} />
@@ -64,6 +69,7 @@ export function Toolbar() {
         <PeopleAITool disabled={disabled} />
         <TextAITool disabled={disabled} />
         <UpgradeAITool disabled={disabled} />
+        <AppliedToolsList />
       </div>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>

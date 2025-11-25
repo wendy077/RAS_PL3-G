@@ -451,12 +451,12 @@ const handleCancel = () => {
         </div>
         {/* Main Content */}
         <div className="h-full overflow-x-hidden flex">
-          {mode !== "results" && <Toolbar />}
-          <ProjectImageList
-            setCurrentImageId={setCurrentImage}
-            results={projectResults.data}
-          />
-        </div>
+        <Toolbar />
+        <ProjectImageList
+          setCurrentImageId={setCurrentImage}
+          results={projectResults.data}
+        />
+      </div>
       </div>
       <Transition
         show={processing}
