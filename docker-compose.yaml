@@ -35,11 +35,13 @@ services:
   nginx:
     image: nginx:latest
     ports:
-      - "8080:80"
+      - "8080:443"
     networks:
       - elk
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs/selfsigned.crt:/etc/nginx/certs/selfsigned.crt:ro
+      - ./certs/selfsigned.key:/etc/nginx/certs/selfsigned.key:ro
     depends_on:
       - api_gateway
       - ws_gateway
@@ -74,7 +76,7 @@ services:
       MINIO_ROOT_USER: admin
       MINIO_ROOT_PASSWORD: admin123
       MINIO_DOMAIN: "minio:9000"
-      FRONTEND_URL: "http://localhost:8080"
+      FRONTEND_URL: "https://localhost:8080"
     networks:
       - elk
 
@@ -209,8 +211,6 @@ services:
     depends_on:
       - projects
       - users
-    ports:
-      - "8000:8000"
     restart: on-failure
     environment:
       - JWT_SECRET_KEY=lisan_al_gaib
@@ -440,8 +440,8 @@ services:
     build: ./frontend
     networks:
       - elk
-    ports:
-      - 3000:3000
+    environment:
+    - NEXT_PUBLIC_API_BASE_URL=/api-gateway/
     volumes:
       - ./frontend:/app
       - /app/node_modules

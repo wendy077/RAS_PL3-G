@@ -60,10 +60,11 @@ export const useGetSocket = (token: string) => {
   return useQuery({
     queryKey: ["socket", token],
     queryFn: () =>
-      io("http://localhost:8080", {
-        auth: {
-          token: token,
-        },
+      io("https://localhost:8080", {
+        transports: ["websocket"],
+        secure: true,
+        rejectUnauthorized: false,
+        auth: { token },
       }),
     refetchOnWindowFocus: false,
     refetchOnMount: false,
