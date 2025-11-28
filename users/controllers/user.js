@@ -1,6 +1,6 @@
 const bcrypt = require("bcrypt");
-
 const User = require("../models/user");
+const { hashEmail } = require("../utils/fieldCrypto");
 
 async function encrypt_password(user) {
   const salt = await bcrypt.genSalt();
@@ -12,26 +12,34 @@ async function encrypt_password(user) {
 }
 
 module.exports.getAll = async () => {
-  return await User.find().sort({ _id: 1 }).exec();
+  const users = await User.find().sort({ _id: 1 }).exec();
+
+  return users.map((u) => u.toJSON());
 };
 
+
 module.exports.getOne = async (user_id) => {
-  return await User.findOne({ _id: user_id }).exec();
+  const user = await User.findOne({ _id: user_id }).exec();
+  return user ? user.toJSON() : null;
 };
 
 module.exports.getOneEmail = async (email) => {
-  return await User.findOne({ email: email }).exec();
+  const emailHash = hashEmail(email);
+  const user = await User.findOne({ email_hash: emailHash }).exec();
+  return user ? user.toJSON() : null;
 };
+
 
 module.exports.create = async (user) => {
   try {
     const encrypt_user = await encrypt_password(user);
-
-    return await User.create(encrypt_user);
+    const created = await User.create(encrypt_user);
+    // devolve já o objeto JSON com email desencriptado e campos sensíveis removidos
+    return created.toJSON();
   } catch (error) {
-    if (error.code === 11000 && /email/.test(error.errmsg))
+    if (error.code === 11000 && error.keyPattern && error.keyPattern.email_hash) {
       throw Error("The given email is already in use.");
-
+    }
     throw error;
   }
 };

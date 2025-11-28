@@ -59,6 +59,11 @@ services:
       MINIO_ROOT_USER: admin
       MINIO_ROOT_PASSWORD: admin123
       MINIO_DOMAIN: "minio:9000"
+
+      # --- ENCRIPTAÇÃO EM REPOUSO ---
+      # "picturas-key" é só o nome lógico da chave
+      MINIO_KMS_SECRET_KEY: "picturas-key:ebrlApXY1+h/SSk7IfNp+1iVVcj1puuQC4AwYtgKBi4="
+      MINIO_KMS_AUTO_ENCRYPTION: "on"
     volumes:
       - minio_data:/data
     networks:
@@ -168,6 +173,7 @@ services:
     environment:
       - FREE_DAILY_OP=5
       - JWT_SECRET_KEY=lisan_al_gaib
+      - FIELD_ENCRYPTION_KEY=uma-frase-secreta-bem-grande-ou-64-hex
     networks:
       - elk
     volumes:
