@@ -12,10 +12,15 @@ import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 import { getErrorMessage } from "@/lib/error-messages";
 
+type RegisterFormProps = React.ComponentProps<"div"> & {
+  next?: string;
+};
+
 export function RegisterForm({
   className,
+  next = "/dashboard",
   ...props
-}: React.ComponentProps<"div">) {
+}: RegisterFormProps) {
   const [firstName, setFirstName] = useState<string>("");
   const [lastName, setLastName] = useState<string>("");
   const [email, setEmail] = useState<string>("");
@@ -47,7 +52,7 @@ export function RegisterForm({
       { name: `${firstName} ${lastName}`, email, password, type: "free" },
       {
         onSuccess: () => {
-          router.replace("/dashboard");
+          // router.replace(next);
         },
         onError: (error) => {
           toast({
@@ -148,8 +153,10 @@ export function RegisterForm({
               )}
               <div className="text-center text-sm">
                 Already have an account?{" "}
-                <Link href="/login" className="underline underline-offset-4">
-                  Sign in
+              <Link
+                  href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"}
+                  className="underline underline-offset-4"
+                > Sign in
                 </Link>
               </div>
             </div>

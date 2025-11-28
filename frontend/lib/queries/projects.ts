@@ -7,6 +7,20 @@ import {
   fetchProjectResults,
 } from "../projects";
 import io from "socket.io-client";
+import { listProjectShareLinks, fetchSharedProject } from "../projects";
+import type { ShareLink } from "../projects";
+
+export const useProjectShareLinks = (
+  userId: string,
+  projectId: string,
+  token: string,
+) => {
+  return useQuery<ShareLink[]>({
+    queryKey: ["projectShareLinks", userId, projectId, token],
+    queryFn: () => listProjectShareLinks(userId, projectId, token),
+    enabled: !!userId && !!projectId && !!token,
+  });
+};
 
 export const useGetProjects = (uid: string, token: string) => {
   return useQuery({
@@ -17,10 +31,15 @@ export const useGetProjects = (uid: string, token: string) => {
 };
 
 
-export const useGetProject = (uid: string, pid: string, token: string) => {
+export const useGetProject = (
+  uid: string,
+  pid: string,
+  token: string,
+  ownerId?: string,
+) => {
   return useQuery({
-    queryKey: ["project", uid, pid, token],
-    queryFn: () => fetchProject(uid, pid, token),
+    queryKey: ["project", uid, pid, token, ownerId],
+    queryFn: () => fetchProject(uid, pid, token, ownerId),
   });
 };
 
@@ -55,9 +74,18 @@ export const useGetProjectResults = (
   uid: string,
   pid: string,
   token: string,
+  ownerId?: string,
 ) => {
   return useQuery({
-    queryKey: ["projectResults", uid, pid, token],
-    queryFn: () => fetchProjectResults(uid, pid, token),
+    queryKey: ["projectResults", uid, pid, token, ownerId],
+    queryFn: () => fetchProjectResults(uid, pid, token, ownerId),
+  });
+};
+
+export const useGetSharedProject = (shareId: string) => {
+  return useQuery({
+    queryKey: ["sharedProject", shareId],
+    queryFn: () => fetchSharedProject(shareId),
+    enabled: !!shareId,
   });
 };

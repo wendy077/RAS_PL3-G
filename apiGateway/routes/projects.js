@@ -66,6 +66,87 @@ Post answer structure in case of success
  * Note: auth.checkToken is a midleware used to verify JWT
  */
 
+// listar links de um projeto (só dono) – protegido
+router.get("/:user/:project/share", auth.checkToken, (req, res) => {
+  axios
+    .get(projectsURL + `${req.params.user}/${req.params.project}/share`, {
+      httpsAgent,
+      headers: { Authorization: req.headers["authorization"] },
+    })
+    .then((resp) => res.status(200).jsonp(resp.data))
+    .catch((err) => {
+      console.error("Error listing share links:", err.response?.data);
+      res.status(500).jsonp("Error listing share links");
+    });
+});
+
+// criar link de partilha
+router.post("/:user/:project/share", auth.checkToken, (req, res) => {
+  axios
+    .post(
+      projectsURL + `${req.params.user}/${req.params.project}/share`,
+      req.body,
+      {
+        httpsAgent,
+        headers: { Authorization: req.headers["authorization"] },
+      },
+    )
+    .then((resp) => res.status(201).jsonp(resp.data))
+    .catch((err) => {
+      console.error("Error creating share link:", err.response?.data);
+      res.status(500).jsonp("Error creating share link");
+    });
+});
+
+// resolver link de partilha (público – sem auth)
+router.get("/share/:shareId", (req, res) => {
+  axios
+    .get(projectsURL + `share/${req.params.shareId}`, { httpsAgent })
+    .then((resp) => res.status(200).jsonp(resp.data))
+    .catch((err) => {
+      const status = err.response?.status || 500;
+      const msg =
+        err.response?.data ||
+        (status === 404
+          ? "Share link not found"
+          : status === 410
+            ? "Share link revoked"
+            : "Error resolving share link");
+
+      res.status(status).jsonp(msg);
+    });
+});
+
+// revogar link de partilha (dono, protegido)
+router.delete("/:user/share/:shareId", auth.checkToken, (req, res) => {
+  axios
+    .delete(projectsURL + `${req.params.user}/share/${req.params.shareId}`, {
+      httpsAgent,
+      headers: { Authorization: req.headers["authorization"] },
+    })
+    .then(() => res.sendStatus(204))
+    .catch((err) => {
+      console.error("Error revoking share link:", err.response?.data);
+      const status = err.response?.status || 500;
+      res.status(status).jsonp("Error revoking share link");
+    });
+});
+
+// obter projeto completo via shareId (público, sem auth)
+router.get("/share/:shareId/project", (req, res) => {
+  axios
+    .get(projectsURL + `share/${req.params.shareId}/project`, {
+      httpsAgent,
+    })
+    .then((resp) => res.status(200).jsonp(resp.data))
+    .catch((err) => {
+      console.error("Error getting shared project:", err.response?.data || err);
+      const status = err.response?.status || 500;
+      const msg = err.response?.data || "Error getting shared project";
+      res.status(status).jsonp(msg);
+    });
+});
+
 /**
  * Get user's projects
  * @body Empty
@@ -84,8 +165,9 @@ router.get("/:user", auth.checkToken, function (req, res, next) {
  * @returns The required project
  */
 router.get("/:user/:project", auth.checkToken, function (req, res, next) {
+  const ownerId = req.query.owner || req.params.user;
   axios
-    .get(projectsURL + `${req.params.user}/${req.params.project}`, {
+    .get(projectsURL + `${ownerId}/${req.params.project}`, {
       httpsAgent: httpsAgent,
     })
     .then((resp) => res.status(200).jsonp(resp.data))
@@ -101,10 +183,11 @@ router.get(
   "/:user/:project/img/:img",
   auth.checkToken,
   function (req, res, next) {
+    const ownerId = req.query.owner || req.params.user;
     axios
       .get(
         projectsURL +
-          `${req.params.user}/${req.params.project}/img/${req.params.img}`,
+          `${ownerId}/${req.params.project}/img/${req.params.img}`,
         {
           httpsAgent: httpsAgent,
         }
@@ -122,8 +205,9 @@ router.get(
  * @returns The project's images
  */
 router.get("/:user/:project/imgs", auth.checkToken, function (req, res, next) {
+  const ownerId = req.query.owner || req.params.user;
   axios
-    .get(projectsURL + `${req.params.user}/${req.params.project}/imgs`, {
+    .get(projectsURL + `${ownerId}/${req.params.project}/imgs`, {
       httpsAgent: httpsAgent,
     })
     .then((resp) => {
@@ -141,8 +225,9 @@ router.get(
   "/:user/:project/process",
   auth.checkToken,
   function (req, res, next) {
+    const ownerId = req.query.owner || req.params.user;
     axios
-      .get(projectsURL + `${req.params.user}/${req.params.project}/process`, {
+      .get(projectsURL + `${ownerId}/${req.params.project}/process`, {
         httpsAgent: httpsAgent,
         responseType: "arraybuffer",
       })
@@ -155,10 +240,15 @@ router.get(
 
   // Cancelar processamento de um projeto
   router.delete("/:user/:project/process", auth.checkToken, function (req, res, next) {
+    const callerId = req.params.user;    // quem está autenticado (runner)
+    const ownerId = req.query.owner || req.params.user;
     axios
       .delete(
-        projectsURL + `${req.params.user}/${req.params.project}/process`,
-        { httpsAgent: httpsAgent }
+        projectsURL + `${ownerId}/${req.params.project}/process`, 
+        { 
+          httpsAgent: httpsAgent,
+          data: { runnerUserId: callerId },
+         }
       )
       .then((resp) => res.sendStatus(resp.status))
       .catch((err) =>
@@ -176,9 +266,10 @@ router.get(
   "/:user/:project/process/url",
   auth.checkToken,
   function (req, res, next) {
+    const ownerId = req.query.owner || req.params.user;
     axios
       .get(
-        projectsURL + `${req.params.user}/${req.params.project}/process/url`,
+        projectsURL + `${ownerId}/${req.params.project}/process/url`,
         {
           httpsAgent: httpsAgent,
         }
@@ -215,11 +306,19 @@ router.post(
   "/:user/:project/preview/:img",
   auth.checkToken,
   function (req, res, next) {
+    const callerId = req.params.user;                 // quem está autenticado (runner)
+    const ownerId = req.query.owner || callerId;      // dono do projeto
+
+    const body = {
+      ...req.body,
+      runnerUserId: callerId,                         
+    };
+
     axios
       .post(
         projectsURL +
-          `${req.params.user}/${req.params.project}/preview/${req.params.img}`,
-        req.body,
+          `${ownerId}/${req.params.project}/preview/${req.params.img}`,
+        body,
         { httpsAgent: httpsAgent }
       )
       .then((resp) => res.status(201).jsonp(resp.data))
@@ -241,6 +340,7 @@ router.post(
   upload.single("image"),
   auth.checkToken,
   function (req, res, next) {
+    const ownerId = req.query.owner || req.params.user;
     const data = new FormData();
     data.append("image", req.file.buffer, {
       filename: req.file.originalname,
@@ -249,7 +349,7 @@ router.post(
 
     axios
       .post(
-        projectsURL + `${req.params.user}/${req.params.project}/img`,
+        projectsURL + `${ownerId}/${req.params.project}/img`,
         data,
         {
           headers: {
@@ -269,9 +369,10 @@ router.post(
  * @returns Post answer structure in case of success
  */
 router.post("/:user/:project/tool", auth.checkToken, function (req, res, next) {
+  const ownerId = req.query.owner || req.params.user;
   axios
     .post(
-      projectsURL + `${req.params.user}/${req.params.project}/tool`,
+      projectsURL + `${ownerId}/${req.params.project}/tool`,
       req.body,
       { httpsAgent: httpsAgent }
     )
@@ -288,9 +389,10 @@ router.post(
   "/:user/:project/reorder",
   auth.checkToken,
   function (req, res, next) {
+    const ownerId = req.query.owner || req.params.user;
     axios
       .post(
-        projectsURL + `${req.params.user}/${req.params.project}/reorder`,
+        projectsURL + `${ownerId}/${req.params.project}/reorder`,
         req.body,
         { httpsAgent: httpsAgent }
       )
@@ -308,10 +410,18 @@ router.post(
   "/:user/:project/process",
   auth.checkToken,
   function (req, res, next) {
+    const callerId = req.params.user;                 // quem está autenticado (runner)
+    const ownerId = req.query.owner || callerId;      // dono do projeto (owner)
+
+    const body = {
+      ...req.body,
+      runnerUserId: callerId,                         
+    };
+
     axios
       .post(
-        projectsURL + `${req.params.user}/${req.params.project}/process`,
-        req.body,
+        projectsURL + `${ownerId}/${req.params.project}/process`,
+        body,
         { httpsAgent: httpsAgent }
       )
       .then((resp) => res.status(201).jsonp(resp.data))
@@ -334,8 +444,9 @@ router.post(
  * @returns Empty
  */
 router.put("/:user/:project", auth.checkToken, function (req, res, next) {
+  const ownerId = req.query.owner || req.params.user;
   axios
-    .put(projectsURL + `${req.params.user}/${req.params.project}`, req.body, {
+    .put(projectsURL + `${ownerId}/${req.params.project}`, req.body, {
       httpsAgent: httpsAgent,
     })
     .then((_) => res.sendStatus(204))
@@ -351,10 +462,11 @@ router.put(
   "/:user/:project/tool/:tool",
   auth.checkToken,
   function (req, res, next) {
+    const ownerId = req.query.owner || req.params.user;
     axios
       .put(
         projectsURL +
-          `${req.params.user}/${req.params.project}/tool/${req.params.tool}`,
+          `${ownerId}/${req.params.project}/tool/${req.params.tool}`,
         req.body,
         { httpsAgent: httpsAgent }
       )
@@ -369,8 +481,9 @@ router.put(
  * @returns Empty
  */
 router.delete("/:user/:project", auth.checkToken, function (req, res, next) {
+  const ownerId = req.query.owner || req.params.user;
   axios
-    .delete(projectsURL + `${req.params.user}/${req.params.project}`, {
+    .delete(projectsURL + `${ownerId}/${req.params.project}`, {
       httpsAgent: httpsAgent,
     })
     .then((_) => res.sendStatus(204))
@@ -386,10 +499,11 @@ router.delete(
   "/:user/:project/img/:img",
   auth.checkToken,
   function (req, res, next) {
+    const ownerId = req.query.owner || req.params.user;
     axios
       .delete(
         projectsURL +
-          `${req.params.user}/${req.params.project}/img/${req.params.img}`,
+          `${ownerId}/${req.params.project}/img/${req.params.img}`,
         { httpsAgent: httpsAgent }
       )
       .then((_) => res.sendStatus(204))
@@ -408,10 +522,11 @@ router.delete(
   "/:user/:project/tool/:tool",
   auth.checkToken,
   function (req, res, next) {
+    const ownerId = req.query.owner || req.params.user;
     axios
       .delete(
         projectsURL +
-          `${req.params.user}/${req.params.project}/tool/${req.params.tool}`,
+          `${ownerId}/${req.params.project}/tool/${req.params.tool}`,
         { httpsAgent: httpsAgent }
       )
       .then((_) => res.sendStatus(204))

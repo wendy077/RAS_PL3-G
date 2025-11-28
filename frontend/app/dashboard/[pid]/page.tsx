@@ -6,6 +6,7 @@ import { ViewToggle } from "@/components/project-page/view-toggle";
 import { AddImagesDialog } from "@/components/project-page/add-images-dialog";
 import { Button } from "@/components/ui/button";
 import { Toolbar } from "@/components/toolbar/toolbar";
+import { ShareProjectDialog } from "@/components/projects/share-dialog";
 import {
   useGetProject,
   useGetProjectResults,
@@ -43,17 +44,19 @@ export default function Project({
   const resolvedParams = use(params);
   const session = useSession();
   const { pid } = resolvedParams;
-  const project = useGetProject(session.user._id, pid, session.token);
-  const downloadProjectImages = useDownloadProject();
-  const processProject = useProcessProject();
-  const cancelProcess = useCancelProjectProcess(); // <-- novo
-  const downloadProjectResults = useDownloadProjectResults();
   const { toast } = useToast();
   const socket = useGetSocket(session.token);
   const updateSession = useUpdateSession();
   const searchParams = useSearchParams();
   const view = searchParams.get("view") ?? "grid";
   const mode = searchParams.get("mode") ?? "edit";
+  // se vier ?owner=... usamos esse userId, senão usamos o próprio utilizador (owner normal)
+  const ownerId = searchParams.get("owner") ?? session.user._id;
+  const project = useGetProject(session.user._id, pid, session.token, ownerId);
+  const downloadProjectImages = useDownloadProject();
+  const processProject = useProcessProject();
+  const cancelProcess = useCancelProjectProcess(); // <-- novo
+  const downloadProjectResults = useDownloadProjectResults();
   const router = useRouter();
   const path = usePathname();
   const sidebar = useSidebar();
@@ -79,6 +82,7 @@ export default function Project({
     session.user._id,
     pid,
     session.token,
+    ownerId,
   );
   const qc = useQueryClient();
 
@@ -129,7 +133,13 @@ useEffect(() => {
             if (!isMobile) sidebar.setOpen(true);
             setProcessingProgress(0);
             setProcessingSteps(1);
-            router.push("?mode=results&view=grid");
+            const params = new URLSearchParams();
+            params.set("mode", "results");
+            params.set("view", "grid");
+            const ownerFromQuery = searchParams.get("owner");
+            if (ownerFromQuery) params.set("owner", ownerFromQuery);
+
+            router.push(`?${params.toString()}`);
 
             if (startedAt != null) {
               const durationMs = performance.now() - startedAt;
@@ -287,6 +297,7 @@ const handleCancel = () => {
       uid: session.user._id,
       pid: project.data._id,
       token: session.token,
+      ownerId,
     },
     {
       onSuccess: () => {
@@ -338,19 +349,19 @@ const handleCancel = () => {
           </div>
           <div className="flex items-center justify-between w-full xl:w-auto gap-2">
             <SidebarTrigger variant="outline" className="h-9 w-10 lg:hidden" />
-            <div className="flex items-center gap-2 flex-wrap justify-end xl:justify-normal w-full xl:w-auto">
+                      <div className="flex items-center gap-2 flex-wrap justify-end xl:justify-normal w-full xl:w-auto">
               {mode !== "results" && (
                 <>
                   <Button
                     disabled={
-                      project.data.tools.length <= 0 || waitingForPreview !== ""
+                      project.data.tools.length <= 0 ||
+                      waitingForPreview !== ""
                     }
                     className="inline-flex"
                     onClick={() => {
-                    // começa a contar o tempo 
+                      // começa a contar o tempo
                       processStartTimeRef.current = performance.now();
 
-                      // vê se este projeto tem pelo menos uma ferramenta de IA
                       const aiProcedures = [
                         "bg_remove_ai",
                         "cut_ai",
@@ -360,39 +371,47 @@ const handleCancel = () => {
                         "upgrade_ai",
                       ];
 
-                      processIsAiRef.current =
-                        project.data.tools.some((t) => aiProcedures.includes(t.procedure));
+                      processIsAiRef.current = project.data.tools.some((t) =>
+                        aiProcedures.includes(t.procedure),
+                      );
 
                       processProject.mutate(
                         {
                           uid: session.user._id,
                           pid: project.data._id,
                           token: session.token,
+                          ownerId,
                         },
                         {
                           onSuccess: () => {
-                            ignoreUpdatesRef.current = false;   // certifica que vamos aceitar updates
+                            ignoreUpdatesRef.current = false;
                             setProcessing(true);
                             sidebar.setOpen(false);
-                          
-                          updateSession.mutate({
-                            userId: session.user._id,
-                            token: session.token,
-                          });
-                        },
+
+                            updateSession.mutate({
+                              userId: session.user._id,
+                              token: session.token,
+                            });
+                          },
                           onError: (error: unknown) => {
                             if (processStartTimeRef.current !== null) {
-                              const durationMs = performance.now() - processStartTimeRef.current;
+                              const durationMs =
+                                performance.now() - processStartTimeRef.current;
                               console.error(
                                 `[Perf] Processamento ${
                                   processIsAiRef.current ? "IA" : "normal"
-                                } falhou logo no arranque após ${(durationMs / 1000).toFixed(2)}s`,
+                                } falhou logo no arranque após ${
+                                  (durationMs / 1000).toFixed(2)
+                                }s`,
                               );
                               processStartTimeRef.current = null;
                               processIsAiRef.current = false;
                             }
 
-                            const { title, description } = getErrorMessage("project-process", error);
+                            const { title, description } = getErrorMessage(
+                              "project-process",
+                              error,
+                            );
                             toast({
                               title,
                               description,
@@ -405,9 +424,16 @@ const handleCancel = () => {
                   >
                     <Play /> Apply
                   </Button>
+
                   <AddImagesDialog />
+
+                {/* botão Share só para o owner */}
+                {session.user._id === ownerId && (
+                  <ShareProjectDialog projectId={project.data._id} />
+                )}
                 </>
               )}
+
               <Button
                 variant="outline"
                 className="px-3"
@@ -422,6 +448,7 @@ const handleCancel = () => {
                       pid: project.data._id,
                       token: session.token,
                       projectName: project.data.name,
+                      ownerId,
                     },
                     {
                       onSuccess: () => {
@@ -442,6 +469,7 @@ const handleCancel = () => {
                   <Download />
                 )}
               </Button>
+
               <div className="hidden xl:flex items-center gap-2">
                 <ViewToggle />
                 <ModeToggle />
@@ -450,6 +478,7 @@ const handleCancel = () => {
           </div>
         </div>
         {/* Main Content */}
+
         <div className="h-full overflow-x-hidden flex">
         <Toolbar />
         <ProjectImageList

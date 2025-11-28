@@ -43,11 +43,13 @@ export function Toolbar() {
   const session = useSession();
 
   const [open, setOpen] = useState<boolean>(false);
+  const ownerParam = searchParams.get("owner") ?? session.user._id;
 
   const clearTools = useClearProjectTools(
     session.user._id,
     project._id,
     session.token,
+    ownerParam,
   );
 
   return (
@@ -97,6 +99,7 @@ export function Toolbar() {
                   pid: project._id,
                   toolIds: project.tools.map((t) => t._id),
                   token: session.token,
+                  ownerId: ownerParam, 
                 });
                 setOpen(false);
               }}

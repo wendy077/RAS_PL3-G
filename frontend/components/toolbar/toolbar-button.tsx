@@ -1,6 +1,6 @@
 import { LoaderCircle, Sparkle, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "@/providers/session-provider";
 import {
   DropdownMenu,
@@ -62,22 +62,27 @@ export function ToolbarButton({
       ? "default"
       : "outline";
   const socket = useGetSocket(session.token);
+  const searchParams = useSearchParams();
+  const ownerParam = searchParams.get("owner") ?? session.user._id;
 
   const currentImage = useCurrentImage();
   const addTool = useAddProjectTool(
     session.user._id,
     project._id,
     session.token,
+    ownerParam,
   );
   const updateTool = useUpdateProjectTool(
     session.user._id,
     project._id,
     session.token,
+    ownerParam,
   );
   const deleteTool = useDeleteProjectTool(
     session.user._id,
     project._id,
     session.token,
+    ownerParam,
   );
   const previewEdits = usePreviewProjectResult();
 
@@ -95,6 +100,7 @@ export function ToolbarButton({
           pid: project._id,
           toolId: prevTool._id,
           token: session.token,
+          ownerId: ownerParam,         
         },
         {
           onError: (error) => {
@@ -116,6 +122,7 @@ export function ToolbarButton({
         pid: project._id,
         imageId: currentImage?._id ?? "",
         token: session.token,
+        ownerId: ownerParam,
       },
       {
         onSuccess: () => {
@@ -146,6 +153,7 @@ export function ToolbarButton({
           toolId: prevTool._id,
           toolParams: tool.params,
           token: session.token,
+          ownerId: ownerParam,   
         },
         {
           onSuccess: () => {
@@ -161,30 +169,27 @@ export function ToolbarButton({
         },
       );
     } else {
-      addTool.mutate(
-        {
-          uid: session.user._id,
-          pid: project._id,
-          tool: {
-            ...tool,
-            position: project.tools.length,
-          },
-          token: session.token,
-        },
-        {
-          onSuccess: () => {
-            if (preview) handlePreview();
-          },
-          onError: (error) => {
-            toast({
-              title: "Ups! An error occurred.",
-              description: error.message,
-              variant: "destructive",
-            });
-          },
-        },
-      );
-    }
+          addTool.mutate(
+            {
+              tool: {
+                ...tool,
+                position: project.tools.length,
+              },
+            },
+            {
+              onSuccess: () => {
+                if (preview) handlePreview();
+              },
+              onError: (error) => {
+                toast({
+                  title: "Ups! An error occurred.",
+                  description: error.message,
+                  variant: "destructive",
+                });
+              },
+            },
+          );
+        }
     setOpen(false);
   }
 

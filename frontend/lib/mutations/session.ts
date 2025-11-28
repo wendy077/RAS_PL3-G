@@ -25,7 +25,7 @@ export const useLogin = () => {
       qc.removeQueries({ queryKey: ["projectResults"] });
       qc.removeQueries({ queryKey: ["socket"] });
 
-      window.location.href = "/dashboard";
+     //  window.location.href = "/dashboard";
 
     },
   });
@@ -48,7 +48,7 @@ export const useRegister = () => {
       });
       qc.removeQueries({ queryKey: ["socket"] });
 
-      window.location.href = "/dashboard";
+      // window.location.href = "/dashboard";
 
     },
   });

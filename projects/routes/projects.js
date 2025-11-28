@@ -89,6 +89,9 @@ function process_msg() {
       if (!process) {
         return;
       }
+      const ownerId = process.user_id;
+      const runnerId = process.runner_id || process.user_id; 
+
       const prev_process_input_img = process.og_img_uri;
       const prev_process_output_img = process.new_img_uri;
       
@@ -101,14 +104,14 @@ function process_msg() {
       if (msg_content.status === "error") {
         console.log(JSON.stringify(msg_content));
         if (/preview/.test(msg_id)) {
-          send_msg_client_preview_error(`update-client-preview-${uuidv4()}`, timestamp, process.user_id, msg_content.error.code, msg_content.error.msg)
+          send_msg_client_preview_error(`update-client-preview-${uuidv4()}`, timestamp, runnerId, msg_content.error.code, msg_content.error.msg)
         }
         
         else {
           send_msg_client_error(
             user_msg_id,
             timestamp,
-            process.user_id,
+            runnerId,   
             msg_content.error.code,
             msg_content.error.msg
           );
@@ -183,7 +186,7 @@ function process_msg() {
           send_msg_client_preview(
             `update-client-preview-${uuidv4()}`,
             timestamp,
-            process.user_id,
+            runnerId,
             JSON.stringify(urls)
           );
 
@@ -196,7 +199,7 @@ function process_msg() {
         send_msg_client(
           user_msg_id,
           timestamp,
-          process.user_id
+          runnerId
         );
 
       if (!/preview/.test(msg_id) && (type == "text" || next_pos >= project.tools.length)) {
@@ -250,6 +253,7 @@ function process_msg() {
 
       const new_process = {
         user_id: project.user_id,
+        runner_id: runnerId,       
         project_id: project._id,
         img_id: img_id,
         msg_id: new_msg_id,
@@ -309,6 +313,197 @@ async function deleteProjectAndResources(userId, projectId) {
   await Project.delete(userId, projectId);
 }
 
+// ================== SHARING / LINKS ==================
+
+// listar links de partilha de um projeto (para o dono)
+router.get("/:user/:project/share", async (req, res) => {
+  try {
+    const project = await Project.getOne(req.params.user, req.params.project);
+
+    const sharedLinks = (project.sharedLinks || []).map((l) => ({
+      id: l.id,
+      permission: l.permission,
+      createdAt: l.createdAt,
+      revoked: l.revoked,
+    }));
+
+    return res.status(200).jsonp(sharedLinks);
+  } catch (err) {
+    console.error("Error listing shared links:", err);
+    return res.status(500).jsonp("Error listing shared links");
+  }
+});
+
+// criar um novo link de partilha
+router.post("/:user/:project/share", async (req, res) => {
+  try {
+    const project = await Project.getOne(req.params.user, req.params.project);
+
+    // garantir que o user é dono do projeto
+    if (String(project.user_id) !== String(req.params.user)) {
+      return res.status(403).jsonp("Not allowed to share this project");
+    }
+
+    const permission =
+      req.body.permission === "edit" ? "edit" : "read"; // default read
+
+    const newLink = {
+      id: uuidv4(),
+      permission,
+      createdAt: new Date(),
+      revoked: false,
+    };
+
+    if (!project.sharedLinks) project.sharedLinks = [];
+    project.sharedLinks.push(newLink);
+
+    await Project.update(req.params.user, req.params.project, project);
+
+    // URL pública que o frontend vai usar (ajusta se tiveres outro host)
+    const frontendBase =
+      process.env.FRONTEND_BASE_URL || "http://localhost:8080";
+    const url = `${frontendBase}/share/${newLink.id}`;
+
+    return res.status(201).jsonp({
+      id: newLink.id,
+      permission: newLink.permission,
+      createdAt: newLink.createdAt,
+      revoked: newLink.revoked,
+      url,
+    });
+  } catch (err) {
+    console.error("Error creating shared link:", err);
+    return res.status(500).jsonp("Error creating shared link");
+  }
+});
+
+// resolver um link de partilha (usado por convidados)
+router.get("/share/:shareId", async (req, res) => {
+  try {
+    const project = await Project.getOneByShareId(req.params.shareId);
+
+    if (!project) {
+      return res.status(404).jsonp("Share link not found");
+    }
+
+    const link = (project.sharedLinks || []).find(
+      (l) => l.id === req.params.shareId,
+    );
+
+    if (!link) {
+      return res.status(404).jsonp("Share link not found");
+    }
+
+    if (link.revoked) {
+      return res.status(410).jsonp("Share link revoked");
+    }
+
+    return res.status(200).jsonp({
+      projectId: project._id,
+      ownerId: project.user_id,
+      permission: link.permission,
+      projectName: project.name,
+    });
+  } catch (err) {
+    console.error("Error resolving share link:", err);
+    return res.status(500).jsonp("Error resolving share link");
+  }
+});
+
+// devolver projeto completo (imgs + tools) via shareId, sem precisar do owner
+router.get("/share/:shareId/project", async (req, res) => {
+  try {
+    const project = await Project.getOneByShareId(req.params.shareId);
+
+    if (!project) {
+      return res.status(404).jsonp("Share link not found");
+    }
+
+    const link = (project.sharedLinks || []).find(
+      (l) => l.id === req.params.shareId,
+    );
+
+    if (!link) {
+      return res.status(404).jsonp("Share link not found");
+    }
+
+    if (link.revoked) {
+      return res.status(410).jsonp("Share link revoked");
+    }
+
+    // estrutura semelhante ao GET "/:user/:project"
+    const response = {
+      _id: project._id,
+      user_id: project.user_id,
+      name: project.name,
+      tools: project.tools,
+      imgs: [],
+      permission: link.permission, // extra
+    };
+
+    for (const img of project.imgs) {
+      try {
+        const resp = await get_image_host(
+          project.user_id,
+          project._id,
+          "src",
+          img.og_img_key,
+        );
+        const url = resp.data.url;
+
+        response.imgs.push({
+          _id: img._id,
+          name: path.basename(img.og_uri),
+          url,
+        });
+      } catch (err) {
+        console.error("Error getting image url for shared project:", err);
+        return res.status(500).jsonp("Error getting image url");
+      }
+    }
+
+    return res.status(200).jsonp(response);
+  } catch (err) {
+    console.error("Error getting shared project:", err);
+    return res.status(500).jsonp("Error getting shared project");
+  }
+});
+
+// revogar um link de partilha
+router.delete("/:user/share/:shareId", async (req, res) => {
+  try {
+    const project = await Project.getOneByShareId(req.params.shareId);
+
+    if (!project) {
+      return res.status(404).jsonp("Share link not found");
+    }
+
+    // garantir que só o dono revoga
+    if (String(project.user_id) !== String(req.params.user)) {
+      return res.status(403).jsonp("Not allowed to revoke this share link");
+    }
+
+    const idx = (project.sharedLinks || []).findIndex(
+      (l) => l.id === req.params.shareId,
+    );
+
+    if (idx === -1) {
+      return res.status(404).jsonp("Share link not found");
+    }
+
+    project.sharedLinks[idx].revoked = true;
+
+    await Project.update(project.user_id, project._id, project);
+
+    return res.sendStatus(204);
+  } catch (err) {
+    console.error("Error revoking share link:", err);
+    return res.status(500).jsonp("Error revoking share link");
+  }
+});
+
+
+// ================== FIM SHARING ==================
 
 // Get list of all projects from a user
 router.get("/:user", (req, res, next) => {
@@ -551,12 +746,12 @@ router.post("/:user", (req, res, next) => {
 });
 
 // Preview an image
-// Preview an image
 router.post("/:user/:project/preview/:img", (req, res, next) => {
-  Project.getOne(req.params.user, req.params.project)
-    .then(async (project) => {
+  const ownerId = req.params.user;
+  const runnerUserId = req.body.runnerUserId || ownerId;
 
-      // 🔥 NOVO: validação igual ao processamento final
+  Project.getOne(ownerId, req.params.project)
+    .then(async (project) => {
       if (project.tools.length === 0) {
         return res.status(400).jsonp("No tools selected");
       }
@@ -568,29 +763,28 @@ router.post("/:user/:project/preview/:img", (req, res, next) => {
 
       const tool_name = tool.procedure;
       const params = tool.params;
-      // ----------------------------------------------------------
 
       const prev_preview = await Preview.getAll(
-        req.params.user,
+        ownerId,
         req.params.project
       );
 
       for (let p of prev_preview) {
         await delete_image(
-          req.params.user,
+          ownerId,
           req.params.project,
           "preview",
           p.img_key
         );
         await Preview.delete(
-          req.params.user,
+          ownerId,
           req.params.project,
           p.img_id
         );
       }
 
-      const source_path = `/../images/users/${req.params.user}/projects/${req.params.project}/src`;
-      const result_path = `/../images/users/${req.params.user}/projects/${req.params.project}/preview`;
+      const source_path = `/../images/users/${ownerId}/projects/${req.params.project}/src`;
+      const result_path = `/../images/users/${ownerId}/projects/${req.params.project}/preview`;
 
       if (!fs.existsSync(path.join(__dirname, source_path)))
         fs.mkdirSync(path.join(__dirname, source_path), { recursive: true });
@@ -605,7 +799,7 @@ router.post("/:user/:project/preview/:img", (req, res, next) => {
       const img_id = img._id;
 
       const resp = await get_image_docker(
-        req.params.user,
+        ownerId,
         req.params.project,
         "src",
         img.og_img_key
@@ -623,10 +817,11 @@ router.post("/:user/:project/preview/:img", (req, res, next) => {
 
       const img_name_parts = img.new_uri.split("/");
       const img_name = img_name_parts[img_name_parts.length - 1];
-      const new_img_uri = `./images/users/${req.params.user}/projects/${req.params.project}/preview/${img_name}`;
+      const new_img_uri = `./images/users/${ownerId}/projects/${req.params.project}/preview/${img_name}`;
 
       const process = {
-        user_id: req.params.user,
+        user_id: ownerId,        
+        runner_id: runnerUserId,  
         project_id: req.params.project,
         img_id: img_id,
         msg_id: msg_id,
@@ -791,17 +986,20 @@ router.post("/:user/:project/reorder", (req, res, next) => {
 
 // Process a specific project
 router.post("/:user/:project/process", (req, res, next) => {
+  const ownerId = req.params.user;
+  const runnerUserId = req.body.runnerUserId || ownerId; 
+
   // Get project and create a new process entry
-  Project.getOne(req.params.user, req.params.project)
+  Project.getOne(ownerId, req.params.project)
     .then(async (project) => {
       try {
         const prev_results = await Result.getAll(
-          req.params.user,
+          ownerId,
           req.params.project
         );
         for (let r of prev_results) {
           await delete_image(
-            req.params.user,
+            ownerId,
             req.params.project,
             "out",
             r.img_key
@@ -820,7 +1018,7 @@ router.post("/:user/:project/process", (req, res, next) => {
 
       const adv_tools = advanced_tool_num(project);
       axios
-        .get(users_ms + `${req.params.user}/process/${adv_tools}`, {
+        .get(users_ms + `${ownerId}/process/${adv_tools}`, {
           httpsAgent: httpsAgent,
         })
         .then(async (resp) => {
@@ -831,8 +1029,8 @@ router.post("/:user/:project/process", (req, res, next) => {
             return;
           }
 
-          const source_path = `/../images/users/${req.params.user}/projects/${req.params.project}/src`;
-          const result_path = `/../images/users/${req.params.user}/projects/${req.params.project}/out`;
+          const source_path = `/../images/users/${ownerId}/projects/${req.params.project}/src`;
+          const result_path = `/../images/users/${ownerId}/projects/${req.params.project}/out`;
 
           if (fs.existsSync(path.join(__dirname, source_path)))
             fs.rmSync(path.join(__dirname, source_path), {
@@ -856,7 +1054,7 @@ router.post("/:user/:project/process", (req, res, next) => {
             let url = "";
             try {
               const resp = await get_image_docker(
-                req.params.user,
+                ownerId,
                 req.params.project,
                 "src",
                 img.og_img_key
@@ -867,11 +1065,10 @@ router.post("/:user/:project/process", (req, res, next) => {
 
               const writer = fs.createWriteStream(img.og_uri);
 
-              // Use a Promise to handle the stream completion
               await new Promise((resolve, reject) => {
                 writer.on("finish", resolve);
                 writer.on("error", reject);
-                img_resp.data.pipe(writer); // Pipe AFTER setting up the event handlers
+                img_resp.data.pipe(writer);
               });
             } catch (_) {
               res.status(400).jsonp("Error acquiring source images");
@@ -889,7 +1086,8 @@ router.post("/:user/:project/process", (req, res, next) => {
             const params = tool.params;
 
             const process = {
-              user_id: req.params.user,
+              user_id: ownerId,          // continua a ser o owner
+              runner_id: runnerUserId,   // quem recebe os sockets
               project_id: req.params.project,
               img_id: img._id,
               msg_id: msg_id,
@@ -898,7 +1096,6 @@ router.post("/:user/:project/process", (req, res, next) => {
               new_img_uri: new_img_uri,
             };
 
-            // Making sure database entry is created before sending message to avoid conflicts
             await Process.create(process)
               .then((_) => {
                 send_msg_tool(

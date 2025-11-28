@@ -14,9 +14,23 @@ const imgSchema = new mongoose.Schema({
 
 const projectSchema = new mongoose.Schema({
   name: { type: String, required: true },
-  user_id: { type: mongoose.Schema.Types.ObjectId, required: true }, // Maybe mudar para falso por causa de users anónimos, ou procurar alguma solução
+  user_id: { type: mongoose.Schema.Types.ObjectId, required: true },
   imgs: { type: [imgSchema], default: [] },
   tools: { type: [toolSchema], default: [] },
+
+  // campo de partilhas
+  sharedLinks: [
+    {
+      id: { type: String, required: true }, // UUID usado no link
+      permission: {
+        type: String,
+        enum: ["read", "edit"],
+        default: "read",
+      },
+      createdAt: { type: Date, default: Date.now },
+      revoked: { type: Boolean, default: false },
+    },
+  ],
 });
 
 module.exports = mongoose.model("project", projectSchema);

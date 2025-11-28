@@ -42,6 +42,7 @@ export function ProjectImageList({
   const searchParams = useSearchParams();
   const view = searchParams.get("view") ?? "grid";
   const mode = searchParams.get("mode") ?? "edit";
+  const owner = searchParams.get("owner");
 
   const [api, setApi] = useState<CarouselApi>();
   const [current, setCurrent] = useState(0);
@@ -189,7 +190,13 @@ useEffect(() => {
                         className="aspect-square"
                         onClick={() => {
                           setJumpTo(index);
-                          router.push(`?mode=${mode}&view=carousel`);
+
+                          const params = new URLSearchParams();
+                          params.set("mode", mode);
+                          params.set("view", "carousel");
+                          if (owner) params.set("owner", owner); 
+
+                          router.push(`?${params.toString()}`);
                           qc.invalidateQueries({
                             queryKey: ["socket"],
                             refetchType: "all",
@@ -207,11 +214,16 @@ useEffect(() => {
                         className="aspect-square"
                         onClick={() => {
                           setJumpTo(
-                            (mode === "results"
-                              ? results.imgs.length
-                              : project.imgs.length) + index,
+                            (mode === "results" ? results.imgs.length : project.imgs.length) +
+                              index,
                           );
-                          router.push(`?mode=${mode}&view=carousel`);
+
+                          const params = new URLSearchParams();
+                          params.set("mode", mode);
+                          params.set("view", "carousel");
+                          if (owner) params.set("owner", owner);
+
+                          router.push(`?${params.toString()}`);
                           qc.invalidateQueries({
                             queryKey: ["socket"],
                             refetchType: "all",

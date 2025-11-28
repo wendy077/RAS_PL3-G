@@ -7,20 +7,26 @@ import { useProjectInfo, useSetProjectTools } from "@/providers/project-provider
 import { useSession } from "@/providers/session-provider";
 import { useReorderProjectTools, useDeleteProjectTool } from "@/lib/mutations/projects";
 import { useToast } from "@/hooks/use-toast";
+import { useSearchParams } from "next/navigation";
 
 export function AppliedToolsList() {
   const project = useProjectInfo();
   const setTools = useSetProjectTools();
   const session = useSession();
+  const searchParams = useSearchParams();
+  const ownerParam = searchParams.get("owner") ?? session.user._id; 
   const reorder = useReorderProjectTools(
     session.user._id,
     project._id,
     session.token,
+    ownerParam,
   );
   const deleteTool = useDeleteProjectTool(
     session.user._id,
     project._id,
     session.token,
+    ownerParam,
+  
   );
   const { toast } = useToast();
 
@@ -47,12 +53,9 @@ export function AppliedToolsList() {
     setTools(withPositions);
 
     // update backend positions
-    reorder.mutate({
-      uid: session.user._id,
-      pid: project._id,
-      tools: withPositions,
-      token: session.token,
-    }, {
+    reorder.mutate(
+      { tools: withPositions },
+    {
       onError: (err) => {
         console.error("Erro ao reordenar:", err);
         toast({
@@ -71,6 +74,7 @@ export function AppliedToolsList() {
         pid: project._id,
         toolId: id,
         token: session.token,
+        ownerId: ownerParam,
       },
       {
         onSuccess: () => {

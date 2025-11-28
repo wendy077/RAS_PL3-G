@@ -39,6 +39,83 @@ export interface ProjectToolResponse extends Omit<ProjectTool, "_id"> {
   _id: string;
 }
 
+export interface SharedProject extends SingleProject {
+  permission: "read" | "edit";
+}
+
+export type ShareLink = {
+  id: string;
+  permission: "read" | "edit";
+  createdAt: string;
+  revoked: boolean;
+};
+
+export const listProjectShareLinks = async (
+  userId: string,
+  projectId: string,
+  token: string,
+): Promise<ShareLink[]> => {
+  const resp = await api.get(`/projects/${userId}/${projectId}/share`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return resp.data;
+};
+
+export const createProjectShareLink = async (params: {
+  userId: string;
+  projectId: string;
+  permission: "read" | "edit";
+  token: string;
+}) => {
+  const { userId, projectId, permission, token } = params;
+  const resp = await api.post(
+    `/projects/${userId}/${projectId}/share`,
+    { permission },
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  return resp.data as {
+    id: string;
+    permission: "read" | "edit";
+    createdAt: string;
+    revoked: boolean;
+    url: string;
+  };
+};
+
+export const revokeShareLink = async (params: {
+  userId: string;
+  shareId: string;
+  token: string;
+}): Promise<void> => {
+  const { userId, shareId, token } = params;
+  await api.delete(`/projects/${userId}/share/${shareId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+};
+
+
+export const resolveShareLink = async (shareId: string) => {
+  const resp = await api.get(`/projects/share/${shareId}`);
+  return resp.data as {
+    projectId: string;
+    ownerId: string;
+    permission: "read" | "edit";
+    projectName: string;
+  };
+};
+
+export const fetchSharedProject = async (shareId: string) => {
+  const response = await api.get<SharedProject>(
+    `/projects/share/${shareId}/project`,
+  );
+
+  if (response.status !== 200 || !response.data) {
+    throw new Error("Failed to fetch shared project");
+  }
+
+  return response.data;
+};
+
 export const fetchProjects = async (uid: string, token: string) => {
     if (!uid || !token) return []; // evita /projects/ sem uid
 
@@ -53,17 +130,24 @@ export const fetchProjects = async (uid: string, token: string) => {
 
   return response.data.map((p) => ({
     _id: p._id,
-    user_id: p.user_id,
+    user_id: uid,
     name: p.name,
   })) as Project[];
 };
 
-export const fetchProject = async (uid: string, pid: string, token: string) => {
-  const response = await api.get<SingleProject>(`/projects/${uid}/${pid}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
+export const fetchProject = async (
+  uid: string,
+  pid: string,
+  token: string,
+  ownerId?: string,
+) => {
+  const query = ownerId ? `?owner=${ownerId}` : "";
+  const response = await api.get<SingleProject>(
+    `/projects/${uid}/${pid}${query}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
     },
-  });
+  );
 
   if (response.status !== 200 || !response.data)
     throw new Error("Failed to fetch project");
@@ -235,12 +319,14 @@ export const downloadProjectImages = async ({
   uid,
   pid,
   token,
+  ownerId,
 }: {
   uid: string;
   pid: string;
   token: string;
+  ownerId?: string;
 }) => {
-  const project = await fetchProject(uid, pid, token);
+  const project = await fetchProject(uid, pid, token, ownerId);
   const zip = new JSZip();
 
   for (const image of project.imgs) {
@@ -320,14 +406,17 @@ export const previewProjectImage = async ({
   pid,
   imageId,
   token,
+  ownerId,
 }: {
   uid: string;
   pid: string;
   imageId: string;
   token: string;
+  ownerId: string;
 }) => {
+  const query = ownerId ? `?owner=${ownerId}` : "";
   const response = await api.post(
-    `/projects/${uid}/${pid}/preview/${imageId}`,
+    `/projects/${uid}/${pid}/preview/${imageId}${query}`,
     {},
     {
       headers: {
@@ -345,14 +434,17 @@ export const addProjectTool = async ({
   pid,
   tool,
   token,
+  ownerId,
 }: {
   uid: string;
   pid: string;
   tool: ProjectTool;
   token: string;
+  ownerId?: string;
 }) => {
+  const query = ownerId ? `?owner=${ownerId}` : "";
   const response = await api.post(
-    `/projects/${uid}/${pid}/tool`,
+    `/projects/${uid}/${pid}/tool${query}`,
     {
       ...tool,
     },
@@ -372,15 +464,18 @@ export const updateProjectTool = async ({
   toolId,
   toolParams,
   token,
+  ownerId,
 }: {
   uid: string;
   pid: string;
   toolId: string;
   toolParams: ToolParams;
   token: string;
+  ownerId: string;
 }) => {
+  const query = ownerId ? `?owner=${ownerId}` : "";
   const response = await api.put(
-    `/projects/${uid}/${pid}/tool/${toolId}`,
+    `/projects/${uid}/${pid}/tool/${toolId}${query}`,
     {
       params: toolParams,
     },
@@ -399,13 +494,17 @@ export const deleteProjectTool = async ({
   pid,
   toolId,
   token,
+  ownerId,
 }: {
   uid: string;
   pid: string;
   toolId: string;
   token: string;
+  ownerId: string;
 }) => {
-  const response = await api.delete(`/projects/${uid}/${pid}/tool/${toolId}`, {
+  const query = ownerId ? `?owner=${ownerId}` : "";
+  const response = await api.delete(`/projects/${uid}/${pid}/tool/${toolId}${query}`,
+ {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -419,14 +518,16 @@ export const clearProjectTools = async ({
   pid,
   token,
   toolIds,
+  ownerId,
 }: {
   uid: string;
   pid: string;
   token: string;
   toolIds: string[];
+  ownerId: string;
 }) => {
   for (const toolId of toolIds) {
-    await deleteProjectTool({ uid, pid, toolId, token });
+    await deleteProjectTool({ uid, pid, toolId, token, ownerId});
   }
 };
 
@@ -435,14 +536,17 @@ export const downloadProjectResults = async ({
   pid,
   projectName,
   token,
+  ownerId,
 }: {
   uid: string;
   pid: string;
   projectName: string;
   token: string;
+  ownerId?: string;
 }) => {
+  const query = ownerId ? `?owner=${ownerId}` : "";
   const response = await api.get<ArrayBuffer>(
-    `/projects/${uid}/${pid}/process`,
+    `/projects/${uid}/${pid}/process${query}`,
     {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -469,7 +573,10 @@ export const fetchProjectResults = async (
   uid: string,
   pid: string,
   token: string,
+  ownerId?: string,
+
 ) => {
+  const query = ownerId ? `?owner=${ownerId}` : "";
   const response = await api.get<{
     imgs: {
       og_img_id: string;
@@ -481,7 +588,7 @@ export const fetchProjectResults = async (
       name: string;
       url: string;
     }[];
-  }>(`/projects/${uid}/${pid}/process/url`, {
+  }>(`/projects/${uid}/${pid}/process/url${query}`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -492,17 +599,17 @@ export const fetchProjectResults = async (
 
   const texts: ProjectImageText[] = [];
   for (const text of response.data.texts) {
-    const response = await axios.get<string>(text.url, {
+    const textResp = await axios.get<string>(text.url, {
       responseType: "text",
     });
 
-    if (response.status !== 200 || !response.data)
+    if (textResp.status !== 200 || !textResp.data)
       throw new Error("Failed to fetch text");
 
     texts.push({
       _id: text.og_img_id,
       name: text.name,
-      text: response.data,
+      text: textResp.data,
     });
   }
 
@@ -523,14 +630,19 @@ export const processProject = async ({
   uid,
   pid,
   token,
+  ownerId,
+
 }: {
   uid: string;
   pid: string;
   token: string;
+  ownerId?: string;
+
 }) => {
   try {
+    const query = ownerId ? `?owner=${ownerId}` : "";
     const response = await api.post<string>(
-      `/projects/${uid}/${pid}/process`,
+      `/projects/${uid}/${pid}/process${query}`,
       {},
       {
         headers: {
@@ -569,14 +681,18 @@ export const processProject = async ({
     pid,
     tools,
     token,
+    ownerId,
   }: {
     uid: string;
     pid: string;
     tools: ProjectToolResponse[]; // mesma estrutura de `project.tools`
     token: string;
+    ownerId?: string;
+
   }) => {
+    const query = ownerId ? `?owner=${ownerId}` : "";
     const response = await api.post(
-      `/projects/${uid}/${pid}/reorder`,
+      `/projects/${uid}/${pid}/reorder${query}`,
       tools,
       {
         headers: {
@@ -598,17 +714,18 @@ export const processProject = async ({
     uid,
     pid,
     token,
+    ownerId,
   }: {
     uid: string;
     pid: string;
     token: string;
+    ownerId?: string;
   }) => {
+    const query = ownerId ? `?owner=${ownerId}` : "";
     const response = await api.delete(
-      `/projects/${uid}/${pid}/process`,
+      `/projects/${uid}/${pid}/process${query}`,
       {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       },
     );
 

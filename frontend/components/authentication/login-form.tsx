@@ -38,7 +38,7 @@ export function LoginForm({
       { email, password },
       {
         onSuccess: () => {
-          router.replace("/dashboard");
+          // router.replace("/dashboard");
         },
         onError: (error) => {
           const { title, description } = getErrorMessage("auth-login", error);

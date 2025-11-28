@@ -19,3 +19,7 @@ module.exports.update = (user_id, project_id, project) => {
 module.exports.delete = (user_id, project_id) => {
   return Project.deleteOne({ user_id: user_id, _id: project_id });
 };
+
+// Devolve o projeto que contém este shareId
+module.exports.getOneByShareId = (shareId) =>
+  Project.findOne({ "sharedLinks.id": shareId }).exec();
