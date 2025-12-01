@@ -2,6 +2,7 @@ import { api } from "./axios";
 import axios from "axios";
 import JSZip from "jszip";
 import { ToolNames, ToolParams } from "./tool-types";
+import { PDFDocument } from "pdf-lib";
 
 export interface Project {
   _id: string;
@@ -456,6 +457,67 @@ export const addProjectTool = async ({
   );
 
   if (response.status !== 201) throw new Error("Failed to add tool");
+};
+
+export const downloadProjectPdf = async ({
+  uid,
+  pid,
+  token,
+  ownerId,
+}: {
+  uid: string;
+  pid: string;
+  token: string;
+  ownerId?: string;
+}) => {
+  const project = await fetchProject(uid, pid, token, ownerId);
+  const pdfDoc = await PDFDocument.create();
+
+  for (const image of project.imgs) {
+    const { file } = await downloadProjectImage({
+      imageUrl: image.url,
+      imageName: image.name,
+    });
+
+    const arrayBuffer = await file.arrayBuffer();
+
+    // se se souber que pode vir jpeg ou png, pode-se detetar pela extensão:
+    const lower = image.name.toLowerCase();
+    const isJpeg = lower.endsWith(".jpg") || lower.endsWith(".jpeg");
+
+    const pageImage = isJpeg
+      ? await pdfDoc.embedJpg(arrayBuffer)
+      : await pdfDoc.embedPng(arrayBuffer);
+
+    const page = pdfDoc.addPage();
+    const { width, height } = pageImage;
+
+    const pageWidth = page.getWidth();
+    const pageHeight = page.getHeight();
+    const scale = Math.min(pageWidth / width, pageHeight / height);
+    const imgWidth = width * scale;
+    const imgHeight = height * scale;
+
+    page.drawImage(pageImage, {
+      x: (pageWidth - imgWidth) / 2,
+      y: (pageHeight - imgHeight) / 2,
+      width: imgWidth,
+      height: imgHeight,
+    });
+  }
+
+  const pdfBytes = await pdfDoc.save(); // Uint8Array
+  const bytes = new Uint8Array(pdfBytes);     
+
+  const blob = new Blob([bytes], {             // Uint8Array é um BlobPart válido
+    type: "application/pdf",
+  });
+
+  const file = new File([blob], `${project.name}.pdf`, {
+  type: "application/pdf",
+  });
+
+  return { name: project.name, file };
 };
 
 export const updateProjectTool = async ({

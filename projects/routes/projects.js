@@ -987,23 +987,15 @@ router.post("/:user/:project/reorder", (req, res, next) => {
 // Process a specific project
 router.post("/:user/:project/process", (req, res, next) => {
   const ownerId = req.params.user;
-  const runnerUserId = req.body.runnerUserId || ownerId; 
+  const runnerUserId = req.body.runnerUserId || ownerId;
 
-  // Get project and create a new process entry
   Project.getOne(ownerId, req.params.project)
     .then(async (project) => {
       try {
-        const prev_results = await Result.getAll(
-          ownerId,
-          req.params.project
-        );
+        // apagar resultados anteriores 
+        const prev_results = await Result.getAll(ownerId, req.params.project);
         for (let r of prev_results) {
-          await delete_image(
-            ownerId,
-            req.params.project,
-            "out",
-            r.img_key
-          );
+          await delete_image(ownerId, req.params.project, "out", r.img_key);
           await Result.delete(r.user_id, r.project_id, r.img_id);
         }
       } catch (_) {
@@ -1017,6 +1009,112 @@ router.post("/:user/:project/process", (req, res, next) => {
       }
 
       const adv_tools = advanced_tool_num(project);
+
+      // função local com a lógica de "arrancar processamento"
+      const startProcessing = async () => {
+        const source_path = `/../images/users/${ownerId}/projects/${req.params.project}/src`;
+        const result_path = `/../images/users/${ownerId}/projects/${req.params.project}/out`;
+
+        if (fs.existsSync(path.join(__dirname, source_path)))
+          fs.rmSync(path.join(__dirname, source_path), {
+            recursive: true,
+            force: true,
+          });
+
+        fs.mkdirSync(path.join(__dirname, source_path), { recursive: true });
+
+        if (fs.existsSync(path.join(__dirname, result_path)))
+          fs.rmSync(path.join(__dirname, result_path), {
+            recursive: true,
+            force: true,
+          });
+
+        fs.mkdirSync(path.join(__dirname, result_path), { recursive: true });
+
+        let error = false;
+
+        for (let img of project.imgs) {
+          let url = "";
+          try {
+            const resp = await get_image_docker(
+              ownerId,
+              req.params.project,
+              "src",
+              img.og_img_key
+            );
+            url = resp.data.url;
+
+            const img_resp = await axios.get(url, { responseType: "stream" });
+            const writer = fs.createWriteStream(img.og_uri);
+
+            await new Promise((resolve, reject) => {
+              writer.on("finish", resolve);
+              writer.on("error", reject);
+              img_resp.data.pipe(writer);
+            });
+          } catch (_) {
+            res.status(400).jsonp("Error acquiring source images");
+            return;
+          }
+
+          const msg_id = `request-${uuidv4()}`;
+          const timestamp = new Date().toISOString();
+
+          const og_img_uri = img.og_uri;
+          const new_img_uri = img.new_uri;
+          const tool = project.tools.filter((t) => t.position === 0)[0];
+
+          const tool_name = tool.procedure;
+          const params = tool.params;
+
+          const process = {
+            user_id: ownerId,
+            runner_id: runnerUserId,
+            project_id: req.params.project,
+            img_id: img._id,
+            msg_id: msg_id,
+            cur_pos: 0,
+            og_img_uri: og_img_uri,
+            new_img_uri: new_img_uri,
+          };
+
+          await Process.create(process)
+            .then(() => {
+              send_msg_tool(
+                msg_id,
+                timestamp,
+                og_img_uri,
+                new_img_uri,
+                tool_name,
+                params
+              );
+            })
+            .catch(() => (error = true));
+        }
+
+        if (error) {
+          res
+            .status(603)
+            .jsonp(
+              `There were some erros creating all process requests. Some results can be invalid.`
+            );
+        } else {
+          res.sendStatus(201);
+        }
+      };
+
+      // Caso 1: sem advanced tools -> não é preciso falar com users-ms
+      if (adv_tools === 0) {
+        try {
+          await startProcessing();
+        } catch (e) {
+          console.error("Error starting processing (no advanced tools):", e);
+          res.status(500).jsonp("Error processing project");
+        }
+        return;
+      }
+
+      // Caso 2: com advanced tools -> verificar quota no users-ms
       axios
         .get(users_ms + `${ownerId}/process/${adv_tools}`, {
           httpsAgent: httpsAgent,
@@ -1029,96 +1127,25 @@ router.post("/:user/:project/process", (req, res, next) => {
             return;
           }
 
-          const source_path = `/../images/users/${ownerId}/projects/${req.params.project}/src`;
-          const result_path = `/../images/users/${ownerId}/projects/${req.params.project}/out`;
-
-          if (fs.existsSync(path.join(__dirname, source_path)))
-            fs.rmSync(path.join(__dirname, source_path), {
-              recursive: true,
-              force: true,
-            });
-
-          fs.mkdirSync(path.join(__dirname, source_path), { recursive: true });
-
-          if (fs.existsSync(path.join(__dirname, result_path)))
-            fs.rmSync(path.join(__dirname, result_path), {
-              recursive: true,
-              force: true,
-            });
-
-          fs.mkdirSync(path.join(__dirname, result_path), { recursive: true });
-
-          let error = false;
-
-          for (let img of project.imgs) {
-            let url = "";
-            try {
-              const resp = await get_image_docker(
-                ownerId,
-                req.params.project,
-                "src",
-                img.og_img_key
-              );
-              url = resp.data.url;
-
-              const img_resp = await axios.get(url, { responseType: "stream" });
-
-              const writer = fs.createWriteStream(img.og_uri);
-
-              await new Promise((resolve, reject) => {
-                writer.on("finish", resolve);
-                writer.on("error", reject);
-                img_resp.data.pipe(writer);
-              });
-            } catch (_) {
-              res.status(400).jsonp("Error acquiring source images");
-              return;
-            }
-
-            const msg_id = `request-${uuidv4()}`;
-            const timestamp = new Date().toISOString();
-
-            const og_img_uri = img.og_uri;
-            const new_img_uri = img.new_uri;
-            const tool = project.tools.filter((t) => t.position === 0)[0];
-
-            const tool_name = tool.procedure;
-            const params = tool.params;
-
-            const process = {
-              user_id: ownerId,          // continua a ser o owner
-              runner_id: runnerUserId,   // quem recebe os sockets
-              project_id: req.params.project,
-              img_id: img._id,
-              msg_id: msg_id,
-              cur_pos: 0,
-              og_img_uri: og_img_uri,
-              new_img_uri: new_img_uri,
-            };
-
-            await Process.create(process)
-              .then((_) => {
-                send_msg_tool(
-                  msg_id,
-                  timestamp,
-                  og_img_uri,
-                  new_img_uri,
-                  tool_name,
-                  params
-                );
-              })
-              .catch((_) => (error = true));
+          try {
+            await startProcessing();
+          } catch (e) {
+            console.error("Error starting processing (advanced tools):", e);
+            res.status(500).jsonp("Error processing project");
           }
-
-          if (error)
-            res
-              .status(603)
-              .jsonp(
-                `There were some erros creating all process requests. Some results can be invalid.`
-              );
-          else res.sendStatus(201);
         })
-        .catch((_) => res.status(400).jsonp(`Error checking if can process`));
+        .catch((err) => {
+          console.error("Error calling users-ms /process:", {
+            message: err.message,
+            status: err.response?.status,
+            data: err.response?.data,
+            url: users_ms + `${ownerId}/process/${adv_tools}`,
+            ownerId,
+            adv_tools,
+          });
+
+          return res.status(400).jsonp("Error checking if can process");
+        });
     })
     .catch((_) => res.status(501).jsonp(`Error acquiring user's project`));
 });

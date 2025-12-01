@@ -21,8 +21,15 @@ import {
   useDownloadProject,
   useDownloadProjectResults,
   useProcessProject,
-  useCancelProjectProcess, // <-- novo
+  useCancelProjectProcess,
+  useDownloadProjectPdf,         
 } from "@/lib/mutations/projects";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu"; // shadcn / radix menu
 import { useToast } from "@/hooks/use-toast";
 import { ProjectImage } from "@/lib/projects";
 import { Progress } from "@/components/ui/progress";
@@ -55,8 +62,9 @@ export default function Project({
   const project = useGetProject(session.user._id, pid, session.token, ownerId);
   const downloadProjectImages = useDownloadProject();
   const processProject = useProcessProject();
-  const cancelProcess = useCancelProjectProcess(); // <-- novo
+  const cancelProcess = useCancelProjectProcess(); 
   const downloadProjectResults = useDownloadProjectResults();
+  const downloadProjectPdf = useDownloadProjectPdf();
   const router = useRouter();
   const path = usePathname();
   const sidebar = useSidebar();
@@ -434,41 +442,89 @@ const handleCancel = () => {
                 </>
               )}
 
-              <Button
-                variant="outline"
-                className="px-3"
-                title="Download project"
-                onClick={() => {
-                  (mode === "edit"
-                    ? downloadProjectImages
-                    : downloadProjectResults
-                  ).mutate(
-                    {
-                      uid: session.user._id,
-                      pid: project.data._id,
-                      token: session.token,
-                      projectName: project.data.name,
-                      ownerId,
-                    },
-                    {
-                      onSuccess: () => {
-                        toast({
-                          title: `Project ${project.data.name} downloaded.`,
-                        });
-                      },
-                    },
-                  );
-                }}
-              >
-                {(mode === "edit"
-                  ? downloadProjectImages
-                  : downloadProjectResults
-                ).isPending ? (
-                  <LoaderCircle className="animate-spin" />
-                ) : (
-                  <Download />
-                )}
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="px-3"
+                    title="Download project"
+                    disabled={
+                      downloadProjectImages.isPending ||
+                      downloadProjectResults.isPending ||
+                      downloadProjectPdf.isPending
+                    }
+                  >
+                    {downloadProjectImages.isPending ||
+                    downloadProjectResults.isPending ||
+                    downloadProjectPdf.isPending ? (
+                      <LoaderCircle className="animate-spin" />
+                    ) : (
+                      <Download />
+                    )}
+                        </Button>
+                      </DropdownMenuTrigger>
+
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={() => {
+                            (mode === "edit"
+                              ? downloadProjectImages
+                              : downloadProjectResults
+                            ).mutate(
+                              {
+                                uid: session.user._id,
+                                pid: project.data._id,
+                                token: session.token,
+                                projectName: project.data.name,
+                                ownerId,
+                              },
+                              {
+                                onSuccess: () => {
+                                  toast({
+                                    title:
+                                      mode === "edit"
+                                        ? `Project ${project.data.name} downloaded as ZIP.`
+                                        : `Results for ${project.data.name} downloaded as ZIP.`,
+                                  });
+                                },
+                              },
+                            );
+                          }}
+                          disabled={
+                            downloadProjectImages.isPending || downloadProjectResults.isPending
+                          }
+                        >
+                          {mode === "edit"
+                            ? "Download images (ZIP)"
+                            : "Download results (ZIP)"}
+                        </DropdownMenuItem>
+
+                        {mode === "edit" && (
+                          <DropdownMenuItem
+                            onClick={() => {
+                              downloadProjectPdf.mutate(
+                                {
+                                  uid: session.user._id,
+                                  pid: project.data._id,
+                                  token: session.token,
+                                  ownerId,
+                                },
+                                {
+                                  onSuccess: () => {
+                                    toast({
+                                      title: `Project ${project.data.name} downloaded as PDF.`,
+                                    });
+                                  },
+                                },
+                              );
+                            }}
+                            disabled={downloadProjectPdf.isPending}
+                          >
+                            Download as PDF
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
 
               <div className="hidden xl:flex items-center gap-2">
                 <ViewToggle />

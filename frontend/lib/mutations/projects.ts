@@ -20,6 +20,7 @@ import {
   createProjectShareLink,
   revokeShareLink,   
 } from "../projects";
+import { downloadProjectPdf } from "../projects";
 import { createBlobUrlFromFile, downloadBlob } from "../utils";
 import { validateSession, SessionData } from "../session";
 import type { ProjectTool, ProjectToolResponse } from "../projects";
@@ -75,6 +76,16 @@ export const useUpdateProject = (uid: string, pid: string, token: string) => {
         refetchType: "all",
         queryKey: ["project", uid, pid, token],
       });
+    },
+  });
+};
+
+export const useDownloadProjectPdf = () => {
+  return useMutation({
+    mutationFn: downloadProjectPdf,
+    onSuccess: async (project) => {
+      const blobUrl = await createBlobUrlFromFile(project.file);
+      downloadBlob(project.file.name, blobUrl);
     },
   });
 };
@@ -139,7 +150,8 @@ export const useDownloadProject = () => {
     mutationFn: downloadProjectImages,
     onSuccess: async (project) => {
       const blobUrl = await createBlobUrlFromFile(project.file);
-      downloadBlob(project.name, blobUrl);
+      // usar o nome *do ficheiro*, que já tem .zip
+      downloadBlob(project.file.name, blobUrl);
     },
   });
 };
@@ -149,7 +161,8 @@ export const useDownloadProjectResults = () => {
     mutationFn: downloadProjectResults,
     onSuccess: async (project) => {
       const blobUrl = await createBlobUrlFromFile(project.file);
-      downloadBlob(project.name + "_edited", blobUrl);
+      // respeita o nome criado na função
+      downloadBlob(project.file.name, blobUrl);
     },
   });
 };
