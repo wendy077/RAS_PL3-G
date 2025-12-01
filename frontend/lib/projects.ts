@@ -464,24 +464,40 @@ export const downloadProjectPdf = async ({
   pid,
   token,
   ownerId,
+  useResults = false,
 }: {
   uid: string;
   pid: string;
   token: string;
   ownerId?: string;
+  useResults?: boolean; // NOVO
 }) => {
   const project = await fetchProject(uid, pid, token, ownerId);
+  const projectName = project.name.replace(/\s+/g, "_");
   const pdfDoc = await PDFDocument.create();
+  const images: { name: string; url: string }[] = [];
 
-  for (const image of project.imgs) {
+  if (useResults) {
+    // usa as imagens EDITADAS
+    const results = await fetchProjectResults(uid, pid, token, ownerId);
+    for (const img of results.imgs) {
+      images.push({ name: img.name, url: img.url });
+    }
+  } else {
+    // usa as imagens ORIGINAIS
+    const project = await fetchProject(uid, pid, token, ownerId);
+    for (const img of project.imgs) {
+      images.push({ name: img.name, url: img.url });
+    }
+  }
+
+  for (const image of images) {
     const { file } = await downloadProjectImage({
       imageUrl: image.url,
       imageName: image.name,
     });
 
     const arrayBuffer = await file.arrayBuffer();
-
-    // se se souber que pode vir jpeg ou png, pode-se detetar pela extensão:
     const lower = image.name.toLowerCase();
     const isJpeg = lower.endsWith(".jpg") || lower.endsWith(".jpeg");
 
@@ -506,18 +522,17 @@ export const downloadProjectPdf = async ({
     });
   }
 
-  const pdfBytes = await pdfDoc.save(); // Uint8Array
-  const bytes = new Uint8Array(pdfBytes);     
+  const pdfBytes = await pdfDoc.save();
+  const bytes = new Uint8Array(pdfBytes);
+  const blob = new Blob([bytes], { type: "application/pdf" });
 
-  const blob = new Blob([bytes], {             // Uint8Array é um BlobPart válido
-    type: "application/pdf",
-  });
+  const fileName = useResults
+    ? `${projectName}_results.pdf`
+    : `${projectName}.pdf`;
 
-  const file = new File([blob], `${project.name}.pdf`, {
-  type: "application/pdf",
-  });
+  const file = new File([blob], fileName, { type: "application/pdf" });
 
-  return { name: project.name, file };
+  return { name: file.name, file };
 };
 
 export const updateProjectTool = async ({

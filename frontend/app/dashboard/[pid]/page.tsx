@@ -499,7 +499,6 @@ const handleCancel = () => {
                             : "Download results (ZIP)"}
                         </DropdownMenuItem>
 
-                        {mode === "edit" && (
                           <DropdownMenuItem
                             onClick={() => {
                               downloadProjectPdf.mutate(
@@ -508,11 +507,16 @@ const handleCancel = () => {
                                   pid: project.data._id,
                                   token: session.token,
                                   ownerId,
+                                  // em results queremos as EDITADAS, em edit queremos as originais
+                                  useResults: mode === "results",
                                 },
                                 {
                                   onSuccess: () => {
                                     toast({
-                                      title: `Project ${project.data.name} downloaded as PDF.`,
+                                      title:
+                                        mode === "results"
+                                          ? `Results for ${project.data.name} downloaded as PDF.`
+                                          : `Project ${project.data.name} downloaded as PDF.`,
                                     });
                                   },
                                 },
@@ -520,9 +524,10 @@ const handleCancel = () => {
                             }}
                             disabled={downloadProjectPdf.isPending}
                           >
-                            Download as PDF
-                          </DropdownMenuItem>
-                        )}
+                            {mode === "results"
+                              ? "Download results (PDF)"
+                              : "Download images (PDF)"}
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
 

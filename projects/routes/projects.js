@@ -438,27 +438,56 @@ router.get("/share/:shareId/project", async (req, res) => {
       name: project.name,
       tools: project.tools,
       imgs: [],
-      permission: link.permission, // extra
+      permission: link.permission, 
     };
 
-    for (const img of project.imgs) {
-      try {
-        const resp = await get_image_host(
-          project.user_id,
-          project._id,
-          "src",
-          img.og_img_key,
-        );
-        const url = resp.data.url;
+    // tentar usar resultados mais recentes
+    const results = await Result.getAll(project.user_id, project._id);
+    const imageResults = results.filter((r) => r.type !== "text");
 
-        response.imgs.push({
-          _id: img._id,
-          name: path.basename(img.og_uri),
-          url,
-        });
-      } catch (err) {
-        console.error("Error getting image url for shared project:", err);
-        return res.status(500).jsonp("Error getting image url");
+    if (imageResults.length > 0) {
+      // usar imagens editadas
+      for (const r of imageResults) {
+        try {
+          const resp = await get_image_host(
+            r.user_id,
+            r.project_id,
+            "out",
+            r.img_key,
+          );
+          const url = resp.data.url;
+
+          response.imgs.push({
+            _id: r.img_id,
+            name: r.file_name,
+            url,
+          });
+        } catch (err) {
+          console.error("Error getting result image url for shared project:", err);
+          return res.status(500).jsonp("Error getting image url");
+        }
+      }
+    } else {
+      // fallback: imagens originais
+      for (const img of project.imgs) {
+        try {
+          const resp = await get_image_host(
+            project.user_id,
+            project._id,
+            "src",
+            img.og_img_key,
+          );
+          const url = resp.data.url;
+
+          response.imgs.push({
+            _id: img._id,
+            name: path.basename(img.og_uri),
+            url,
+          });
+        } catch (err) {
+          console.error("Error getting image url for shared project:", err);
+          return res.status(500).jsonp("Error getting image url");
+        }
       }
     }
 
