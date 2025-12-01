@@ -7,6 +7,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { OctagonAlert } from "lucide-react";
 import { useGetSession } from "@/lib/queries/session";
 import { useUpdateSession } from "@/lib/mutations/session";
+import { getErrorMessage } from "@/lib/error-messages";
 
 interface SessionContextData {
   session: SessionData;
@@ -44,14 +45,23 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       <div className="flex justify-center items-center size-full absolute top-0 left-0">
         <Loading />
         {session.isError && (
-          <Alert
-            variant="destructive"
-            className="w-fit max-w-[40rem] text-wrap truncate"
-          >
-            <OctagonAlert className="size-4" />
-            <AlertTitle>{session.error.name}</AlertTitle>
-            <AlertDescription>{session.error.message}</AlertDescription>
-          </Alert>
+          (() => {
+            const { title, description } = getErrorMessage(
+              "generic",
+              session.error,
+            );
+
+            return (
+              <Alert
+                variant="destructive"
+                className="w-fit max-w-[40rem] text-wrap truncate"
+              >
+                <OctagonAlert className="size-4" />
+                <AlertTitle>{title}</AlertTitle>
+                <AlertDescription>{description}</AlertDescription>
+              </Alert>
+            );
+          })()
         )}
       </div>
     );

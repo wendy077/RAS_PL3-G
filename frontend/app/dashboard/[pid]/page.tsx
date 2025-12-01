@@ -252,7 +252,12 @@ useEffect(() => {
   processing,
 ]);
 
-  if (project.isError)
+  if (project.isError) {
+    const { title, description } = getErrorMessage(
+      "project-load",
+      project.error,
+    );
+
     return (
       <div className="flex size-full justify-center items-center h-screen p-8">
         <Alert
@@ -260,11 +265,12 @@ useEffect(() => {
           className="w-fit max-w-[40rem] text-wrap truncate"
         >
           <OctagonAlert className="size-4" />
-          <AlertTitle>{project.error.name}</AlertTitle>
-          <AlertDescription>{project.error.message}</AlertDescription>
+          <AlertTitle>{title}</AlertTitle>
+          <AlertDescription>{description}</AlertDescription>
         </Alert>
       </div>
     );
+  }
 
   if (
     project.isLoading ||

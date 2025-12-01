@@ -25,6 +25,7 @@ import { ProjectTool, ProjectToolResponse } from "@/lib/projects";
 import { toast } from "@/hooks/use-toast";
 import { useGetSocket } from "@/lib/queries/projects";
 import { Tooltip, TooltipTrigger, TooltipContent } from "../ui/tooltip";
+import { getErrorMessage } from "@/lib/error-messages";
 
 interface ToolbarButtonProps {
   open?: boolean;
@@ -104,9 +105,10 @@ export function ToolbarButton({
         },
         {
           onError: (error) => {
+            const { title, description } = getErrorMessage("project-update", error);
             toast({
-              title: "Ups! An error occurred.",
-              description: error.message,
+              title,
+              description,
               variant: "destructive",
             });
           },
@@ -134,9 +136,10 @@ export function ToolbarButton({
           );
         },
         onError: (error) => {
+          const { title, description } = getErrorMessage("project-process", error);
           toast({
-            title: "Ups! An error occurred.",
-            description: error.message,
+            title,
+            description,
             variant: "destructive",
           });
         },
@@ -160,9 +163,10 @@ export function ToolbarButton({
             if (preview) handlePreview();
           },
           onError: (error) => {
+            const { title, description } = getErrorMessage("project-update", error);
             toast({
-              title: "Ups! An error occurred.",
-              description: error.message,
+              title,
+              description,
               variant: "destructive",
             });
           },
@@ -181,9 +185,10 @@ export function ToolbarButton({
                 if (preview) handlePreview();
               },
               onError: (error) => {
+                const { title, description } = getErrorMessage("project-update", error);
                 toast({
-                  title: "Ups! An error occurred.",
-                  description: error.message,
+                  title,
+                  description,
                   variant: "destructive",
                 });
               },

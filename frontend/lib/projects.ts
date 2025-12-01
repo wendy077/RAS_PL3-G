@@ -733,24 +733,25 @@ export const processProject = async ({
     }
 
     return response.data;
-  } catch (error: unknown) {
 
-    if (axios.isAxiosError(error)) {
-      const backendMsg = error.response?.data;
+    } catch (error: unknown) {
+      if (axios.isAxiosError(error)) {
+        const backendMsg = error.response?.data;
 
-      // Caso de limite diário
-      if (backendMsg === "No more daily_operations available") {
-        throw new Error("No more daily_operations available");
+        // Caso de limite diário – mantemos esta mensagem especial, porque o frontend sabe tratá-la em getErrorMessage.
+        if (backendMsg === "No more daily_operations available") {
+          throw new Error("No more daily_operations available");
+        }
+
+        // Para o resto, relançamos o próprio erro Axios. O frontend vai usar getErrorMessage para o traduzir.
+        throw error;
       }
 
-      // Outros erros: devolve a mensagem normal do Axios
-      throw new Error(error.message);
+      // Se for outro tipo de erro, relança como está
+      throw error;
     }
+  };
 
-    // Se for outro tipo de erro, relança
-    throw error;
-  }
-};
 
   // Reordenar ferramentas de um projeto
   export const reorderProjectTools = async ({

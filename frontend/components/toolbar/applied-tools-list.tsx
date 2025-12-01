@@ -8,6 +8,7 @@ import { useSession } from "@/providers/session-provider";
 import { useReorderProjectTools, useDeleteProjectTool } from "@/lib/mutations/projects";
 import { useToast } from "@/hooks/use-toast";
 import { useSearchParams } from "next/navigation";
+import { getErrorMessage } from "@/lib/error-messages";
 
 export function AppliedToolsList() {
   const project = useProjectInfo();
@@ -55,16 +56,18 @@ export function AppliedToolsList() {
     // update backend positions
     reorder.mutate(
       { tools: withPositions },
-    {
-      onError: (err) => {
-        console.error("Erro ao reordenar:", err);
-        toast({
-          title: "Erro ao reordenar",
-          description: "O servidor não conseguiu atualizar a ordem.",
-          variant: "destructive"
-        })
-      }
-    });
+      {
+        onError: (error) => {
+          console.error("Erro ao reordenar:", error);
+          const { title, description } = getErrorMessage("project-update", error);
+          toast({
+            title,
+            description,
+            variant: "destructive",
+          });
+        },
+      },
+    );
   }
 
   function handleRemove(id: string) {

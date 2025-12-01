@@ -11,6 +11,7 @@ type ErrorContext =
   | "project-download"
   | "project-process"
   | "project-cancel-process"
+  | "project-load"           
   | "billing"
   | "upgrade"
   | "ai"
@@ -151,6 +152,14 @@ export function getErrorMessage(
         description:
           backendMsg ??
           "Não foi possível gerar sugestões da IA. Tenta novamente. Se o problema continuar, verifica a tua ligação à internet.",
+      };
+
+    case "project-load":
+      return {
+        title: "Erro ao carregar projeto",
+        description:
+          backendMsg ??
+          "Não foi possível carregar o projeto. Verifica a tua ligação e tenta novamente.",
       };
 
     default:
