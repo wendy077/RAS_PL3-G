@@ -469,6 +469,49 @@ services:
       - RABBITMQ_PASS=password
       - JWT_SECRET_KEY=lisan_al_gaib
 
+  mongo-backup:
+    image: mongo:4.4
+    container_name: mongo-backup
+    restart: on-failure
+    depends_on:
+      - users_mongoDB
+      - projects_mongoDB
+      - subscriptions_mongoDB
+    volumes:
+      - ./backups/mongo:/backups
+    networks:
+      - elk
+    command: >
+      bash -c '
+        echo "[mongo-backup] container started";
+        while true; do
+          echo "[mongo-backup] starting daily backup...";
+          TS=$(date +"%F-%H%M");
+
+          echo "[mongo-backup] timestamp = $${TS}";
+
+          mongodump \
+            --host users_mongoDB \
+            --port 27019 \
+            --archive=/backups/users-$${TS}.gz \
+            --gzip;
+
+          mongodump \
+            --host projects_mongoDB \
+            --port 27018 \
+            --archive=/backups/projects-$${TS}.gz \
+            --gzip;
+
+          mongodump \
+            --host subscriptions_mongoDB \
+            --archive=/backups/subscriptions-$${TS}.gz \
+            --gzip;
+
+          echo "[mongo-backup] backup finished, sleeping 24h...";
+          sleep 86400;
+        done
+      '
+
 networks:
   elk:
     driver: bridge
