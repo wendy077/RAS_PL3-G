@@ -60,18 +60,31 @@ const advanced_tools = [
   "people_ai",
 ];
 
+// Conta quantas ferramentas avançadas existem neste projeto (independente de imagens)
+function count_advanced_tools(project) {
+  const tools = project.tools || [];
+  return tools.filter((t) => advanced_tools.includes(t.procedure)).length;
+}
+
+/**
+ * Calcula quantas operações avançadas vão ser usadas *nesta execução*.
+ * - totalAdv: nº total de tools avançadas atualmente no projeto
+ * - charged: nº de tools avançadas já “pagas” (clamped para nunca ser > totalAdv)
+ * - newTools: nº de tools avançadas novas desde a última vez que foram pagas
+ * - adv_ops: nº de operações a debitar no users-ms (= newTools * nº de imagens)
+ */
 function advanced_tool_num(project) {
-  const tools = project.tools;
-  let ans = 0;
+  const totalAdv = count_advanced_tools(project);
+  let charged = project.chargedAdvancedTools || 0;
 
-  for (let t of tools) {
-    if (advanced_tools.includes(t.procedure)) ans++;
-  }
+  // Se o utilizador apagou tools avançadas depois de pagar, 
+  // garantimos que charged nunca é maior que o total atual.
+  if (charged > totalAdv) charged = totalAdv;
 
-  // Multiply answer by number of images to reduce chance of a single project with infinite images
-  ans *= project.imgs.length;
+  const newTools = totalAdv - charged;
+  const adv_ops = newTools > 0 ? newTools * project.imgs.length : 0;
 
-  return ans;
+  return { totalAdv, charged, newTools, adv_ops };
 }
 
 // TODO process message according to type of output
@@ -743,19 +756,11 @@ router.get("/:user/:project/process/url", (req, res, next) => {
 
 // Get number of advanced tools used in a project
 router.get("/:user/:project/advanced_tools", (req, res, next) => {
-  // Getting last processed request from project in order to get their result's path
   Project.getOne(req.params.user, req.params.project)
     .then((project) => {
-      const tools = project.tools;
-      let ans = 0;
-
-      for (let t of tools) {
-        if (advanced_tools.includes(t.procedure)) ans++;
-      }
-
-      // Multiply answer by number of images to reduce chance of a single project with infinite images
-      ans *= project.imgs.length;
-      res.status(200).jsonp(ans);
+      const { adv_ops } = advanced_tool_num(project);
+      // nº de operações avançadas que ESTA execução iria gastar
+      res.status(200).jsonp(adv_ops);
     })
     .catch((_) => res.status(501).jsonp(`Error acquiring user's project`));
 });
@@ -1037,7 +1042,17 @@ router.post("/:user/:project/process", (req, res, next) => {
         return;
       }
 
-      const adv_tools = advanced_tool_num(project);
+      const { adv_ops, totalAdv, charged, newTools } = advanced_tool_num(project);
+
+      console.log(
+        "[ADV DEBUG] project:",
+        req.params.project,
+        "adv_ops:", adv_ops,
+        "totalAdv:", totalAdv,
+        "charged:", charged,
+        "newTools:", newTools,
+        "tools:", project.tools.map((t) => t.procedure)
+      );
 
       // função local com a lógica de "arrancar processamento"
       const startProcessing = async () => {
@@ -1133,8 +1148,16 @@ router.post("/:user/:project/process", (req, res, next) => {
       };
 
       // Caso 1: sem advanced tools -> não é preciso falar com users-ms
-      if (adv_tools === 0) {
+      if (adv_ops === 0) {
         try {
+          // Se tivermos “chargedAdvancedTools” maior que o total atual, 
+          // corrigimos e guardamos.
+          if (charged !== project.chargedAdvancedTools) {
+            project.chargedAdvancedTools = charged;
+            project.pendingAdvancedOps = 0;
+            await Project.update(ownerId, req.params.project, project);
+          }
+
           await startProcessing();
         } catch (e) {
           console.error("Error starting processing (no advanced tools):", e);
@@ -1145,7 +1168,7 @@ router.post("/:user/:project/process", (req, res, next) => {
 
       // Caso 2: com advanced tools -> verificar quota no users-ms
       axios
-        .get(users_ms + `${ownerId}/process/${adv_tools}`, {
+        .get(users_ms + `${ownerId}/process/${adv_ops}`, {
           httpsAgent: httpsAgent,
         })
         .then(async (resp) => {
@@ -1157,6 +1180,13 @@ router.post("/:user/:project/process", (req, res, next) => {
           }
 
           try {
+            // Marcamos que já pagámos todas as tools avançadas atuais
+            // (charged + newTools === totalAdv)
+            project.chargedAdvancedTools = charged + newTools;
+            project.pendingAdvancedOps = adv_ops;
+
+            await Project.update(ownerId, req.params.project, project);
+
             await startProcessing();
           } catch (e) {
             console.error("Error starting processing (advanced tools):", e);
@@ -1168,19 +1198,19 @@ router.post("/:user/:project/process", (req, res, next) => {
             message: err.message,
             status: err.response?.status,
             data: err.response?.data,
-            url: users_ms + `${ownerId}/process/${adv_tools}`,
+            url: users_ms + `${ownerId}/process/${adv_ops}`,
             ownerId,
-            adv_tools,
+            adv_ops,
           });
 
           if (err.response) {
             const status = err.response.status || 500;
             const data = err.response.data || "Error checking if can process";
             return res.status(status).jsonp(data);
-        }
-          
-        return res.status(500).jsonp("Error checking if can process");
-      });
+          }
+
+          return res.status(500).jsonp("Error checking if can process");
+        });
     })
     .catch((_) => res.status(501).jsonp(`Error acquiring user's project`));
 });
@@ -1209,7 +1239,7 @@ router.put("/:user/:project/tool/:tool", (req, res, next) => {
           (i) => i._id == req.params.tool
         );
         const prev_tool = project["tools"][tool_pos];
-
+ 
         project["tools"][tool_pos] = {
           position: prev_tool.position,
           procedure: prev_tool.procedure,
@@ -1361,17 +1391,21 @@ router.delete("/:user/:project/tool/:tool", (req, res, next) => {
 // Cancelar processamento de um projeto 
 router.delete("/:user/:project/process", async (req, res, next) => {
   try {
-    // 1) tentar devolver operações ao utilizador
+    // 1) tentar devolver operações ao utilizador (apenas as pendentes desta execução)
     try {
       const project = await Project.getOne(req.params.user, req.params.project);
-      const adv_tools = advanced_tool_num(project);
+      const adv_ops = project.pendingAdvancedOps || 0;
 
-      if (adv_tools > 0) {
+      if (adv_ops > 0) {
         await axios.post(
-          users_ms + `${req.params.user}/process/refund/${adv_tools}`,
+          users_ms + `${req.params.user}/process/refund/${adv_ops}`,
           {},
           { httpsAgent: httpsAgent },
         );
+
+        // reset do pendingAdvancedOps depois do refund
+        project.pendingAdvancedOps = 0;
+        await Project.update(req.params.user, req.params.project, project);
       }
     } catch (err) {
       console.error("Error refunding operations on cancel:", err);

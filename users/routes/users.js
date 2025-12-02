@@ -314,53 +314,52 @@ router.put("/:user/process/:advanced_tools", function (req, res, next) {
 });
 
 // Refund de operações quando um processamento é cancelado
-router.post("/:user/process/refund/:advanced_tools", function (req, res, next) {
-  User.getOne(req.params.user)
-    .then((user) => {
-      const op_num = parseInt(req.params.advanced_tools);
+router.post("/:user/process/refund/:advanced_tools", async function (req, res) {
+  try {
+    const user = await User.getOne(req.params.user);
+    const op_num = parseInt(req.params.advanced_tools, 10);
 
-      if (!Number.isFinite(op_num) || op_num <= 0) {
-        return res.status(400).jsonp("Invalid operations number");
-      }
+    if (!Number.isFinite(op_num) || op_num <= 0) {
+      return res.status(400).jsonp("Invalid operations number");
+    }
 
-      // Premium não precisa de refund (não tem limite)
-      if (user.type === "premium") {
-        return res.status(200).jsonp(true);
-      }
+    // premium não precisa de refund (não tem limite diário)
+    if (user.type === "premium") {
+      return res.status(200).jsonp(true);
+    }
 
-      const date = get_cur_date();
-      const process_date = new Date(date.year, date.month, date.day);
+    const { year, month, day } = get_cur_date();
+    const process_date = new Date(year, month, day);
 
-      let op = null;
+    // procurar operações de hoje
+    const opToday = user.operations.find(
+      (o) => o.day.getTime() === process_date.getTime(),
+    );
 
-      if (
-        user.operations.filter(
-          (o) => o.day.getTime() === process_date.getTime(),
-        ).length > 0
-      ) {
-        op = user.operations.filter(
-          (o) => o.day.getTime() === process_date.getTime(),
-        )[0];
-        user.operations.remove(op);
-      } else {
-        return res.status(200).jsonp(true);
-      }
+    // se não havia registo para hoje, não há nada para devolver
+    if (!opToday) {
+      return res.status(200).jsonp(true);
+    }
 
-      // tirar as operações gastas, sem ir abaixo de 0
-      op.processed = Math.max(0, op.processed - op_num);
+    // tirar as operações gastas, sem ir abaixo de 0
+    opToday.processed = Math.max(0, opToday.processed - op_num);
 
-      // só voltamos a guardar se ainda houver algo processado hoje
-      if (op.processed > 0) {
-        user.operations.push(op);
-      }
+    // recriar o array de operações sem o registo antigo de hoje
+    user.operations = user.operations.filter(
+      (o) => o.day.getTime() !== process_date.getTime(),
+    );
 
-      User.update(req.params.user, user)
-        .then((_) => res.status(200).jsonp(true))
-        .catch((_) =>
-          res.status(704).jsonp(`Error updating user's information`),
-        );
-    })
-    .catch((_) => res.status(701).jsonp(`Error acquiring user's information.`));
+    // se ainda sobrar algo processado hoje, voltamos a inserir
+    if (opToday.processed > 0) {
+      user.operations.push(opToday);
+    }
+
+    await User.update(req.params.user, user);
+    return res.status(200).jsonp(true);
+  } catch (err) {
+    console.error("Error refunding operations:", err);
+    return res.status(701).jsonp("Error acquiring user's information.");
+  }
 });
 
 // Delete a user + all related data (projects, daily ops, etc.)

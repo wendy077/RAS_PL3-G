@@ -18,6 +18,13 @@ const projectSchema = new mongoose.Schema({
   imgs: { type: [imgSchema], default: [] },
   tools: { type: [toolSchema], default: [] },
 
+  // número de ferramentas avançadas já “pagas” neste projeto
+  chargedAdvancedTools: { type: Number, default: 0 },
+
+  // nº de operações avançadas reservadas numa execução em curso
+  // (serve só para saber quanto refund fazer em caso de cancel)
+  pendingAdvancedOps: { type: Number, default: 0 },
+  
   // campo de partilhas
   sharedLinks: [
     {
