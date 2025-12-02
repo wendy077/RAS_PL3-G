@@ -3,7 +3,6 @@ import {
   addProject,
   addProjectImages,
   addProjectTool,
-  clearProjectTools,
   deleteProject,
   deleteProjectImages,
   deleteProjectTool,
@@ -18,7 +17,8 @@ import {
   reorderProjectTools,
   listProjectShareLinks,
   createProjectShareLink,
-  revokeShareLink,   
+  revokeShareLink,
+  clearProjectTools,   
 } from "../projects";
 import { downloadProjectPdf } from "../projects";
 import { createBlobUrlFromFile, downloadBlob } from "../utils";
@@ -282,25 +282,6 @@ export const useDeleteProjectTool = (
   });
 };
 
-export const useClearProjectTools = (
-  uid: string,
-  pid: string,
-  token: string,
-  ownerId: string,
-) => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: clearProjectTools,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["project", uid, pid, token, ownerId] });
-      qc.invalidateQueries({
-        refetchType: "all",
-        queryKey: ["projectResults", uid, pid, token, ownerId],
-      });
-    },
-  });
-};
-
   export const useReorderProjectTools = (
     uid: string,
     pid: string,
@@ -369,5 +350,29 @@ export const useRevokeShareLink = (
   });
 };
 
+export const useClearProjectTools = (
+  uid: string,
+  pid: string,
+  token: string,
+  ownerId?: string,
+) => {
+  const qc = useQueryClient();
 
+  return useMutation({
+    mutationFn: (params: { toolIds: string[] }) =>
+      clearProjectTools({
+        uid,
+        pid,
+        token,
+        toolIds: params.toolIds,
+        ownerId: ownerId ?? uid,
+      }),
+    onSuccess: () => {
+      // refetch do projeto para garantir que tools vêm vazias
+      qc.invalidateQueries({
+        queryKey: ["project", uid, pid, ownerId ?? uid],
+      });
+    },
+  });
+};
 

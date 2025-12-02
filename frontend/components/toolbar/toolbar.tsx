@@ -95,11 +95,7 @@ export function Toolbar() {
               variant="destructive"
               onClick={() => {
                 clearTools.mutate({
-                  uid: session.user._id,
-                  pid: project._id,
                   toolIds: project.tools.map((t) => t._id),
-                  token: session.token,
-                  ownerId: ownerParam, 
                 });
                 setOpen(false);
               }}

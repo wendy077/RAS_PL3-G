@@ -52,7 +52,7 @@ export function getErrorMessage(
     };
   }
 
-  // Podes ir acrescentando aqui outros códigos específicos do backend
+  // Ir acrescentando aqui outros códigos específicos do backend
   // if (backendMsg === "Invalid credentials") { ... }
 
   // 3) Contextos específicos

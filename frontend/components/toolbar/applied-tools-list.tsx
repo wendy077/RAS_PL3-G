@@ -3,12 +3,16 @@
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { SortableToolItem } from "./sortable-tool-item";
-import { useProjectInfo, useSetProjectTools } from "@/providers/project-provider";
+import { useProjectInfo, useSetProjectTools, useCurrentImage } from "@/providers/project-provider";
 import { useSession } from "@/providers/session-provider";
-import { useReorderProjectTools, useDeleteProjectTool } from "@/lib/mutations/projects";
+import { useReorderProjectTools, useDeleteProjectTool, useClearProjectTools, usePreviewProjectResult } from "@/lib/mutations/projects";
 import { useToast } from "@/hooks/use-toast";
 import { useSearchParams } from "next/navigation";
 import { getErrorMessage } from "@/lib/error-messages";
+import { Undo2, RotateCcw } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useQueryClient } from "@tanstack/react-query";
+
 
 export function AppliedToolsList() {
   const project = useProjectInfo();
@@ -16,6 +20,7 @@ export function AppliedToolsList() {
   const session = useSession();
   const searchParams = useSearchParams();
   const ownerParam = searchParams.get("owner") ?? session.user._id; 
+  const qc = useQueryClient();
   const reorder = useReorderProjectTools(
     session.user._id,
     project._id,
@@ -29,9 +34,22 @@ export function AppliedToolsList() {
     ownerParam,
   
   );
+
+  const clearTools = useClearProjectTools(
+    session.user._id,
+    project._id,
+    session.token,
+    ownerParam,
+  );
+
+  const preview = usePreviewProjectResult();  
+
   const { toast } = useToast();
 
   const tools = project.tools;
+
+  const currentImage = useCurrentImage();
+  const imageId = currentImage?._id;
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 }}));
 
@@ -87,12 +105,128 @@ export function AppliedToolsList() {
     );
 }
 
+function handleUndo() {
+  if (tools.length === 0) {
+    toast({
+      title: "Nada para reverter",
+      description: "Ainda não aplicaste nenhuma edição nesta sessão.",
+    });
+    return;
+  }
+
+  const lastTool = tools[tools.length - 1];
+
+  deleteTool.mutate(
+    {
+      uid: session.user._id,
+      pid: project._id,
+      toolId: lastTool._id,
+      token: session.token,
+      ownerId: ownerParam,
+    },
+    {
+      onSuccess: () => {
+        const updated = tools.slice(0, -1);
+        setTools(updated);
+
+        // Só pedir preview se ainda houver tools
+        if (imageId && updated.length > 0) {
+          preview.mutate({
+            uid: session.user._id,
+            pid: project._id,
+            imageId,
+            token: session.token,
+            ownerId: ownerParam,
+          });
+        }
+
+        qc.invalidateQueries({
+          queryKey: [
+            "projectResults",
+            session.user._id,
+            project._id,
+            session.token,
+            ownerParam,
+          ],
+        });
+      },
+    },
+  );
+}
+
+function handleReset() {
+  if (tools.length === 0) {
+    toast({
+      title: "Nada para limpar",
+      description: "Este projeto já está na versão original.",
+    });
+    return;
+  }
+
+  const ids = tools.map((t) => t._id);
+
+  clearTools.mutate(
+    { toolIds: ids },
+    {
+      onSuccess: () => {
+        setTools([]);
+
+        // Não chamamos preview quando já não há tools
+        // (a imagem original já existe, apenas não estamos a forçar re-render do preview)
+        qc.invalidateQueries({
+          queryKey: [
+            "projectResults",
+            session.user._id,
+            project._id,
+            session.token,
+            ownerParam,
+          ],
+        });
+
+        toast({
+          title: "Edições removidas",
+          description: "A imagem voltou à versão original.",
+        });
+      },
+    },
+  );
+}
+
   return (
     <div className="mt-3 flex w-full flex-col gap-2">
-      <span className="text-xs text-gray-500">Applied</span>
+
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-gray-500">Applied</span>
+
+        <div className="flex items-center gap-1">
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-6 w-6"
+            onClick={handleUndo}
+            disabled={tools.length === 0 || deleteTool.isPending}
+            title="Reverter última edição"
+          >
+            <Undo2 className="h-3 w-3" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={handleReset}
+            disabled={tools.length === 0 || clearTools.isPending}
+            title="Reset para versão original"
+          >
+            <RotateCcw className="h-3 w-3" />
+          </Button>
+        </div>
+      </div>
 
       {tools.length === 0 && (
-        <p className="text-[11px] text-gray-400">Nenhuma ferramenta aplicada</p>
+        <p className="text-[11px] text-gray-400">
+          Nenhuma ferramenta aplicada
+        </p>
       )}
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>

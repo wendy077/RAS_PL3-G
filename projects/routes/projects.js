@@ -1173,8 +1173,14 @@ router.post("/:user/:project/process", (req, res, next) => {
             adv_tools,
           });
 
-          return res.status(400).jsonp("Error checking if can process");
-        });
+          if (err.response) {
+            const status = err.response.status || 500;
+            const data = err.response.data || "Error checking if can process";
+            return res.status(status).jsonp(data);
+        }
+          
+        return res.status(500).jsonp("Error checking if can process");
+      });
     })
     .catch((_) => res.status(501).jsonp(`Error acquiring user's project`));
 });

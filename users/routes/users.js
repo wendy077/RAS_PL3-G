@@ -128,46 +128,50 @@ router.get("/:user/type/", function (req, res, next) {
 });
 
 // Test if we can process a project based on the number of advanced tools
-router.get("/:user/process/:advanced_tools", function (req, res, next) {
-  User.getOne(req.params.user)
-    .then((user) => {
-      const op_num = parseInt(req.params.advanced_tools);
+router.get("/:user/process/:advanced_tools", async function (req, res, next) {
+  try {
+    const user = await User.getOne(req.params.user);
 
-      let op = {};
+    if (!user) {
+      return res.status(404).jsonp("Error acquiring user's information.");
+    }
 
-      const date = get_cur_date();
-      const process_date = new Date(date.year, date.month, date.day);
+    const op_num = parseInt(req.params.advanced_tools, 10) || 0;
 
-      if (
-        user.operations.filter(
-          (o) => o.day.getTime() === process_date.getTime(),
-        ).length > 0
-      ) {
-        op = user.operations.filter(
-          (o) => o.day.getTime() === process_date.getTime(),
-        )[0];
-        user.operations.remove(op);
-      } else {
-        op = {
-          day: process_date,
-          processed: 0,
-        };
-      }
+    const { year, month, day } = get_cur_date();
+    const process_date = new Date(year, month, day);
 
-      let can_process = check_process(user, op, op_num);
+    // procurar operações de hoje
+    let op =
+      user.operations.find((o) => o.day.getTime() === process_date.getTime()) ||
+      { day: process_date, processed: 0 };
 
-      if (can_process) op.processed += op_num;
+    // verificar se pode processar
+    const can_process = check_process(user, op, op_num);
 
-      user.operations.push(op);
+    if (!can_process) {
+      // aqui é o caso de ficar sem operações
+      return res.status(701).jsonp("No more daily_operations available");
+    }
 
-      User.update(req.params.user, user)
-        .then((_) => res.status(200).jsonp(can_process))
-        .catch((_) =>
-          res.status(704).jsonp(`Error updating user's information`),
-        );
-    })
-    .catch((_) => res.status(701).jsonp(`Error acquiring user's information.`));
+    // se pode processar, reservar as operações
+    op.processed += op_num;
+
+    // remover registo antigo de hoje (se existir) e voltar a pôr atualizado
+    user.operations = user.operations.filter(
+      (o) => o.day.getTime() !== process_date.getTime(),
+    );
+    user.operations.push(op);
+
+    await User.update(req.params.user, user);
+
+    return res.status(200).jsonp(true);
+  } catch (err) {
+    console.error("Error in GET /:user/process/:advanced_tools:", err);
+    return res.status(701).jsonp("Error acquiring user's information.");
+  }
 });
+
 
 // Create a new user
 router.post("/", function (req, res, next) {
