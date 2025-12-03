@@ -20,22 +20,35 @@ export default function SharePage({ params }: Props) {
   useEffect(() => {
     let cancelled = false;
 
-    fetchSharedProject(linkId)
-      .then((p) => {
-        if (cancelled) return;
-        setProject(p);
-        setLoading(false);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setError(true);
-        setLoading(false);
-      });
+    async function load() {
+      try {
+        const p = await fetchSharedProject(linkId);
+        if (!cancelled) {
+          setProject(p);
+          setError(false);
+          setLoading(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setProject(null);
+          setError(true);
+          setLoading(false);
+        }
+      }
+    }
+
+    // primeira vez
+    load();
+
+    // repetir a cada 5s
+    const interval = setInterval(load, 5000);
 
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, [linkId]);
+
 
   if (loading) {
     return (
@@ -63,7 +76,7 @@ export default function SharePage({ params }: Props) {
   }
 
   // URL do editor (dashboard do projeto partilhado)
-  const editorUrl = `/dashboard/${project._id}?owner=${project.user_id}`;
+  const editorUrl = `/dashboard/${project._id}?owner=${project.user_id}&share=${linkId}`;
   const nextParam = encodeURIComponent(editorUrl);
 
   return (

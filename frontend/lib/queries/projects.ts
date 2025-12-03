@@ -36,10 +36,11 @@ export const useGetProject = (
   pid: string,
   token: string,
   ownerId?: string,
+  shareId?: string,
 ) => {
   return useQuery({
-    queryKey: ["project", uid, pid, token, ownerId],
-    queryFn: () => fetchProject(uid, pid, token, ownerId),
+    queryKey: ["project", uid, pid, token, ownerId, shareId],
+    queryFn: () => fetchProject(uid, pid, token, ownerId, shareId),
   });
 };
 
@@ -76,10 +77,11 @@ export const useGetProjectResults = (
   pid: string,
   token: string,
   ownerId?: string,
+  shareId?: string,
 ) => {
   return useQuery({
-    queryKey: ["projectResults", uid, pid, token, ownerId],
-    queryFn: () => fetchProjectResults(uid, pid, token, ownerId),
+    queryKey: ["projectResults", uid, pid, token, ownerId, shareId],
+    queryFn: () => fetchProjectResults(uid, pid, token, ownerId, shareId),
   });
 };
 

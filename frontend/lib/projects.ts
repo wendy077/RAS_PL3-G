@@ -4,6 +4,13 @@ import JSZip from "jszip";
 import { ToolNames, ToolParams } from "./tool-types";
 import { PDFDocument } from "pdf-lib";
 
+function buildQuery(params: { ownerId?: string; shareId?: string }) {
+  const search = new URLSearchParams();
+  if (params.ownerId) search.set("owner", params.ownerId);
+  if (params.shareId) search.set("share", params.shareId);
+  const qs = search.toString();
+  return qs ? `?${qs}` : "";
+}
 export interface Project {
   _id: string;
   user_id: string;
@@ -141,8 +148,9 @@ export const fetchProject = async (
   pid: string,
   token: string,
   ownerId?: string,
+  shareId?: string,        
 ) => {
-  const query = ownerId ? `?owner=${ownerId}` : "";
+  const query = buildQuery({ ownerId, shareId });   
   const response = await api.get<SingleProject>(
     `/projects/${uid}/${pid}${query}`,
     {
@@ -321,13 +329,15 @@ export const downloadProjectImages = async ({
   pid,
   token,
   ownerId,
+  shareId,                       
 }: {
   uid: string;
   pid: string;
   token: string;
   ownerId?: string;
+  shareId?: string;
 }) => {
-  const project = await fetchProject(uid, pid, token, ownerId);
+  const project = await fetchProject(uid, pid, token, ownerId, shareId);
   const zip = new JSZip();
 
   for (const image of project.imgs) {
@@ -354,24 +364,30 @@ export const addProjectImages = async ({
   pid,
   token,
   images,
+  ownerId,
+  shareId,
 }: {
   uid: string;
   pid: string;
   token: string;
   images: File[];
+  ownerId?: string;
+  shareId?: string;
 }) => {
+  const query = buildQuery({ ownerId, shareId });
+
   for (const image of images) {
     const formData = new FormData();
     formData.append("image", image);
 
-    const response = await api.post(`/projects/${uid}/${pid}/img`, formData, {
+    const response = await api.post(`/projects/${uid}/${pid}/img${query}`, formData, {
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "multipart/form-data",
       },
     });
 
-    if (response.status !== 201 || !response.data)
+    if (response.status !== 201)
       throw new Error("Failed to upload image: " + image.name);
   }
 };
@@ -381,15 +397,20 @@ export const deleteProjectImages = async ({
   pid,
   token,
   imageIds,
+  ownerId,
+  shareId,
 }: {
   uid: string;
   pid: string;
   token: string;
   imageIds: string[];
+  ownerId?: string;
+  shareId?: string;
 }) => {
+  const query = buildQuery({ ownerId, shareId });
   for (const imageId of imageIds) {
     const response = await api.delete(
-      `/projects/${uid}/${pid}/img/${imageId}`,
+        `/projects/${uid}/${pid}/img/${imageId}${query}`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -408,14 +429,16 @@ export const previewProjectImage = async ({
   imageId,
   token,
   ownerId,
+  shareId
 }: {
   uid: string;
   pid: string;
   imageId: string;
   token: string;
   ownerId: string;
+  shareId?: string;
 }) => {
-  const query = ownerId ? `?owner=${ownerId}` : "";
+  const query = buildQuery({ ownerId, shareId });
   const response = await api.post(
     `/projects/${uid}/${pid}/preview/${imageId}${query}`,
     {},
@@ -436,14 +459,16 @@ export const addProjectTool = async ({
   tool,
   token,
   ownerId,
+  shareId
 }: {
   uid: string;
   pid: string;
   tool: ProjectTool;
   token: string;
   ownerId?: string;
+  shareId?: string;
 }) => {
-  const query = ownerId ? `?owner=${ownerId}` : "";
+  const query = buildQuery({ ownerId, shareId });
   const response = await api.post(
     `/projects/${uid}/${pid}/tool${query}`,
     {
@@ -464,28 +489,30 @@ export const downloadProjectPdf = async ({
   pid,
   token,
   ownerId,
+  shareId,
   useResults = false,
 }: {
   uid: string;
   pid: string;
   token: string;
   ownerId?: string;
-  useResults?: boolean; // NOVO
+  useResults?: boolean; 
+  shareId?: string;
 }) => {
-  const project = await fetchProject(uid, pid, token, ownerId);
+  const project = await fetchProject(uid, pid, token, ownerId, shareId);
   const projectName = project.name.replace(/\s+/g, "_");
   const pdfDoc = await PDFDocument.create();
   const images: { name: string; url: string }[] = [];
 
   if (useResults) {
     // usa as imagens EDITADAS
-    const results = await fetchProjectResults(uid, pid, token, ownerId);
+    const results = await fetchProjectResults(uid, pid, token, ownerId, shareId);
     for (const img of results.imgs) {
       images.push({ name: img.name, url: img.url });
     }
   } else {
     // usa as imagens ORIGINAIS
-    const project = await fetchProject(uid, pid, token, ownerId);
+    const project = await fetchProject(uid, pid, token, ownerId, shareId);
     for (const img of project.imgs) {
       images.push({ name: img.name, url: img.url });
     }
@@ -542,6 +569,7 @@ export const updateProjectTool = async ({
   toolParams,
   token,
   ownerId,
+  shareId
 }: {
   uid: string;
   pid: string;
@@ -549,8 +577,9 @@ export const updateProjectTool = async ({
   toolParams: ToolParams;
   token: string;
   ownerId: string;
+  shareId?: string;
 }) => {
-  const query = ownerId ? `?owner=${ownerId}` : "";
+  const query = buildQuery({ ownerId, shareId });
   const response = await api.put(
     `/projects/${uid}/${pid}/tool/${toolId}${query}`,
     {
@@ -572,14 +601,16 @@ export const deleteProjectTool = async ({
   toolId,
   token,
   ownerId,
+  shareId
 }: {
   uid: string;
   pid: string;
   toolId: string;
   token: string;
   ownerId: string;
+  shareId?: string;
 }) => {
-  const query = ownerId ? `?owner=${ownerId}` : "";
+  const query = buildQuery({ ownerId, shareId });
   const response = await api.delete(`/projects/${uid}/${pid}/tool/${toolId}${query}`,
  {
     headers: {
@@ -596,15 +627,17 @@ export const clearProjectTools = async ({
   token,
   toolIds,
   ownerId,
+  shareId
 }: {
   uid: string;
   pid: string;
   token: string;
   toolIds: string[];
   ownerId: string;
+  shareId?: string;
 }) => {
   for (const toolId of toolIds) {
-    await deleteProjectTool({ uid, pid, toolId, token, ownerId});
+    await deleteProjectTool({ uid, pid, toolId, token, ownerId, shareId});
   }
 };
 
@@ -614,14 +647,16 @@ export const downloadProjectResults = async ({
   projectName,
   token,
   ownerId,
+  shareId
 }: {
   uid: string;
   pid: string;
   projectName: string;
   token: string;
   ownerId?: string;
+  shareId?: string;
 }) => {
-  const query = ownerId ? `?owner=${ownerId}` : "";
+  const query = buildQuery({ ownerId, shareId });
   const response = await api.get<ArrayBuffer>(
     `/projects/${uid}/${pid}/process${query}`,
     {
@@ -651,9 +686,10 @@ export const fetchProjectResults = async (
   pid: string,
   token: string,
   ownerId?: string,
+  shareId?: string,
 
 ) => {
-  const query = ownerId ? `?owner=${ownerId}` : "";
+  const query = buildQuery({ ownerId, shareId });
   const response = await api.get<{
     imgs: {
       og_img_id: string;
@@ -708,16 +744,16 @@ export const processProject = async ({
   pid,
   token,
   ownerId,
-
+  shareId
 }: {
   uid: string;
   pid: string;
   token: string;
   ownerId?: string;
-
+  shareId?: string;
 }) => {
   try {
-    const query = ownerId ? `?owner=${ownerId}` : "";
+    const query = buildQuery({ ownerId, shareId });
     const response = await api.post<string>(
       `/projects/${uid}/${pid}/process${query}`,
       {},
@@ -760,15 +796,16 @@ export const processProject = async ({
     tools,
     token,
     ownerId,
+    shareId
   }: {
     uid: string;
     pid: string;
     tools: ProjectToolResponse[]; // mesma estrutura de `project.tools`
     token: string;
     ownerId?: string;
-
+    shareId?: string;
   }) => {
-    const query = ownerId ? `?owner=${ownerId}` : "";
+  const query = buildQuery({ ownerId, shareId });
     const response = await api.post(
       `/projects/${uid}/${pid}/reorder${query}`,
       tools,
@@ -793,13 +830,15 @@ export const processProject = async ({
     pid,
     token,
     ownerId,
+    shareId
   }: {
     uid: string;
     pid: string;
     token: string;
     ownerId?: string;
+    shareId?: string;
   }) => {
-    const query = ownerId ? `?owner=${ownerId}` : "";
+  const query = buildQuery({ ownerId, shareId });
     const response = await api.delete(
       `/projects/${uid}/${pid}/process${query}`,
       {

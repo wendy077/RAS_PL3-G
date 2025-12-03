@@ -59,7 +59,8 @@ export default function Project({
   const mode = searchParams.get("mode") ?? "edit";
   // se vier ?owner=... usamos esse userId, senão usamos o próprio utilizador (owner normal)
   const ownerId = searchParams.get("owner") ?? session.user._id;
-  const project = useGetProject(session.user._id, pid, session.token, ownerId);
+  const shareId = searchParams.get("share") ?? undefined;
+  const project = useGetProject(session.user._id, pid, session.token, ownerId, shareId);
   const downloadProjectImages = useDownloadProject();
   const processProject = useProcessProject();
   const cancelProcess = useCancelProjectProcess(); 
@@ -91,6 +92,7 @@ export default function Project({
     pid,
     session.token,
     ownerId,
+    shareId,
   );
   const qc = useQueryClient();
 
@@ -144,8 +146,12 @@ useEffect(() => {
             const params = new URLSearchParams();
             params.set("mode", "results");
             params.set("view", "grid");
+            
             const ownerFromQuery = searchParams.get("owner");
+            const shareFromQuery = searchParams.get("share");  
+
             if (ownerFromQuery) params.set("owner", ownerFromQuery);
+            if (shareFromQuery) params.set("share", shareFromQuery); 
 
             router.push(`?${params.toString()}`);
 
@@ -312,6 +318,7 @@ const handleCancel = () => {
       pid: project.data._id,
       token: session.token,
       ownerId,
+      shareId
     },
     {
       onSuccess: () => {
@@ -395,6 +402,7 @@ const handleCancel = () => {
                           pid: project.data._id,
                           token: session.token,
                           ownerId,
+                          shareId,
                         },
                         {
                           onSuccess: () => {
@@ -483,6 +491,7 @@ const handleCancel = () => {
                                 token: session.token,
                                 projectName: project.data.name,
                                 ownerId,
+                                shareId,
                               },
                               {
                                 onSuccess: () => {
@@ -513,6 +522,7 @@ const handleCancel = () => {
                                   pid: project.data._id,
                                   token: session.token,
                                   ownerId,
+                                  shareId,
                                   // em results queremos as EDITADAS, em edit queremos as originais
                                   useResults: mode === "results",
                                 },

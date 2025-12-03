@@ -35,6 +35,11 @@ const {
   delete_image,
 } = require("../utils/minio");
 
+const {
+  checkSharePermission,
+  requireEditPermission
+} = require("../middleware/shareAuth");
+
 const storage = multer.memoryStorage();
 var upload = multer({ storage: storage });
 
@@ -566,7 +571,7 @@ router.get("/:user", (req, res, next) => {
 });
 
 // Get a specific user's project
-router.get("/:user/:project", (req, res, next) => {
+router.get("/:user/:project", checkSharePermission, (req, res, next) => {
   Project.getOne(req.params.user, req.params.project)
     .then(async (project) => {
       const response = {
@@ -603,7 +608,7 @@ router.get("/:user/:project", (req, res, next) => {
 });
 
 // Get a specific project's image
-router.get("/:user/:project/img/:img", async (req, res, next) => {
+router.get("/:user/:project/img/:img", checkSharePermission, async (req, res, next) => {
   Project.getOne(req.params.user, req.params.project)
     .then(async (project) => {
       try {
@@ -627,7 +632,7 @@ router.get("/:user/:project/img/:img", async (req, res, next) => {
 });
 
 // Get project images
-router.get("/:user/:project/imgs", async (req, res, next) => {
+router.get("/:user/:project/imgs", checkSharePermission, async (req, res, next) => {
   Project.getOne(req.params.user, req.params.project)
     .then(async (project) => {
       try {
@@ -662,7 +667,7 @@ router.get("/:user/:project/imgs", async (req, res, next) => {
 });
 
 // Get results of processing a project
-router.get("/:user/:project/process", (req, res, next) => {
+router.get("/:user/:project/process", checkSharePermission, (req, res, next) => {
   // Getting last processed request from project in order to get their result's path
 
   Project.getOne(req.params.user, req.params.project)
@@ -721,7 +726,7 @@ router.get("/:user/:project/process", (req, res, next) => {
 
 
 // Get results of processing a project
-router.get("/:user/:project/process/url", (req, res, next) => {
+router.get("/:user/:project/process/url", checkSharePermission, (req, res, next) => {
   // Getting last processed request from project in order to get their result's path
 
   Project.getOne(req.params.user, req.params.project)
@@ -755,7 +760,7 @@ router.get("/:user/:project/process/url", (req, res, next) => {
 
 
 // Get number of advanced tools used in a project
-router.get("/:user/:project/advanced_tools", (req, res, next) => {
+router.get("/:user/:project/advanced_tools", checkSharePermission, (req, res, next) => {
   Project.getOne(req.params.user, req.params.project)
     .then((project) => {
       const { adv_ops } = advanced_tool_num(project);
@@ -780,7 +785,7 @@ router.post("/:user", (req, res, next) => {
 });
 
 // Preview an image
-router.post("/:user/:project/preview/:img", (req, res, next) => {
+router.post("/:user/:project/preview/:img", checkSharePermission, requireEditPermission, (req, res, next) => {
   const ownerId = req.params.user;
   const runnerUserId = req.body.runnerUserId || ownerId;
 
@@ -885,9 +890,9 @@ router.post("/:user/:project/preview/:img", (req, res, next) => {
 
 // Add new image to a project
 router.post(
-  "/:user/:project/img",
-  upload.single("image"),
+  "/:user/:project/img", checkSharePermission, requireEditPermission, upload.single("image"),
   async (req, res, next) => {
+    console.log("PROJECTS-MS /:user/:project/img HIT, file =", !!req.file);
     if (!req.file) {
       res.status(400).jsonp("No file found");
       return;
@@ -950,7 +955,7 @@ router.post(
 );
 
 // Add new tool to a project
-router.post("/:user/:project/tool", (req, res, next) => {
+router.post("/:user/:project/tool", checkSharePermission, requireEditPermission, (req, res, next) => {
   // Reject posts to tools that don't fullfil the requirements
   if (!req.body.procedure || !req.body.params) {
     res
@@ -994,7 +999,7 @@ router.post("/:user/:project/tool", (req, res, next) => {
 });
 
 // Reorder tools of a project
-router.post("/:user/:project/reorder", (req, res, next) => {
+router.post("/:user/:project/reorder", checkSharePermission, requireEditPermission, (req, res, next) => {
   // Remove all tools from project and reinsert them according to new order
   Project.getOne(req.params.user, req.params.project)
     .then((project) => {
@@ -1019,7 +1024,7 @@ router.post("/:user/:project/reorder", (req, res, next) => {
 });
 
 // Process a specific project
-router.post("/:user/:project/process", (req, res, next) => {
+router.post("/:user/:project/process", checkSharePermission, requireEditPermission, (req, res, next) => {
   const ownerId = req.params.user;
   const runnerUserId = req.body.runnerUserId || ownerId;
 
@@ -1230,7 +1235,7 @@ router.put("/:user/:project", (req, res, next) => {
 });
 
 // Update a tool from a specific project
-router.put("/:user/:project/tool/:tool", (req, res, next) => {
+router.put("/:user/:project/tool/:tool", checkSharePermission, requireEditPermission, (req, res, next) => {
   // Get project and update required tool with new data, keeping it's original position and procedure
   Project.getOne(req.params.user, req.params.project)
     .then((project) => {
@@ -1292,7 +1297,7 @@ router.delete("/:user", async (req, res, next) => {
 
 
 // Delete an image from a project
-router.delete("/:user/:project/img/:img", (req, res, next) => {
+router.delete("/:user/:project/img/:img", checkSharePermission, requireEditPermission, (req, res, next) => {
   // Get project and delete specified image
   Project.getOne(req.params.user, req.params.project)
     .then(async (project) => {
@@ -1360,7 +1365,7 @@ router.delete("/:user/:project/img/:img", (req, res, next) => {
 });
 
 // Delete a tool from a project
-router.delete("/:user/:project/tool/:tool", (req, res, next) => {
+router.delete("/:user/:project/tool/:tool", checkSharePermission, requireEditPermission, (req, res, next) => {
   // Get project and delete specified tool, updating the position of all tools that follow
   Project.getOne(req.params.user, req.params.project)
     .then((project) => {

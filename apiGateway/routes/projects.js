@@ -169,6 +169,7 @@ router.get("/:user/:project", auth.checkToken, function (req, res, next) {
   axios
     .get(projectsURL + `${ownerId}/${req.params.project}`, {
       httpsAgent: httpsAgent,
+      params: req.query.share ? { share: req.query.share } : undefined,
     })
     .then((resp) => res.status(200).jsonp(resp.data))
     .catch((err) => res.status(500).jsonp("Error getting project"));
@@ -190,6 +191,7 @@ router.get(
           `${ownerId}/${req.params.project}/img/${req.params.img}`,
         {
           httpsAgent: httpsAgent,
+          params: req.query.share ? { share: req.query.share } : undefined,
         }
       )
       .then((resp) => {
@@ -209,6 +211,7 @@ router.get("/:user/:project/imgs", auth.checkToken, function (req, res, next) {
   axios
     .get(projectsURL + `${ownerId}/${req.params.project}/imgs`, {
       httpsAgent: httpsAgent,
+      params: req.query.share ? { share: req.query.share } : undefined,
     })
     .then((resp) => {
       res.status(200).send(resp.data);
@@ -230,6 +233,7 @@ router.get(
       .get(projectsURL + `${ownerId}/${req.params.project}/process`, {
         httpsAgent: httpsAgent,
         responseType: "arraybuffer",
+        params: req.query.share ? { share: req.query.share } : undefined,
       })
       .then((resp) => res.status(200).send(resp.data))
       .catch((err) =>
@@ -272,6 +276,7 @@ router.get(
         projectsURL + `${ownerId}/${req.params.project}/process/url`,
         {
           httpsAgent: httpsAgent,
+          params: req.query.share ? { share: req.query.share } : undefined,
         }
       )
       .then((resp) => {
@@ -319,7 +324,8 @@ router.post(
         projectsURL +
           `${ownerId}/${req.params.project}/preview/${req.params.img}`,
         body,
-        { httpsAgent: httpsAgent }
+        { httpsAgent: httpsAgent,
+        params: req.query.share ? { share: req.query.share } : undefined, }
       )
       .then((resp) => res.status(201).jsonp(resp.data))
       .catch((err) => {
@@ -341,6 +347,7 @@ router.post(
   auth.checkToken,
   function (req, res, next) {
     const ownerId = req.query.owner || req.params.user;
+
     const data = new FormData();
     data.append("image", req.file.buffer, {
       filename: req.file.originalname,
@@ -353,13 +360,18 @@ router.post(
         data,
         {
           headers: {
-            "Content-Type": "multipart/form-data",
+            ...data.getHeaders(),                     // inclui content-type + boundary correto
+            Authorization: req.headers["authorization"],   
           },
           httpsAgent: httpsAgent,
+          params: req.query.share ? { share: req.query.share } : undefined, // <-- importante
         }
       )
-      .then((resp) => res.sendStatus(201))
-      .catch((err) => res.status(500).jsonp("Error adding image to project"));
+      .then(() => res.sendStatus(201))
+      .catch((err) => {
+        console.error("UPLOAD ERROR:", err.response?.data || err);
+        res.status(500).jsonp("Error adding image to project");
+      });
   }
 );
 
@@ -374,7 +386,9 @@ router.post("/:user/:project/tool", auth.checkToken, function (req, res, next) {
     .post(
       projectsURL + `${ownerId}/${req.params.project}/tool`,
       req.body,
-      { httpsAgent: httpsAgent }
+      { httpsAgent: httpsAgent,
+        params: req.query.share ? { share: req.query.share } : undefined,
+       }
     )
     .then((resp) => res.status(201).jsonp(resp.data))
     .catch((err) => res.status(500).jsonp("Error adding tool to project"));
@@ -394,7 +408,9 @@ router.post(
       .post(
         projectsURL + `${ownerId}/${req.params.project}/reorder`,
         req.body,
-        { httpsAgent: httpsAgent }
+        { httpsAgent: httpsAgent,
+          params: req.query.share ? { share: req.query.share } : undefined,
+         }
       )
       .then((resp) => res.status(201).jsonp(resp.data))
       .catch((err) => res.status(500).jsonp("Error reordering tools"));
@@ -422,7 +438,9 @@ router.post(
       .post(
         projectsURL + `${ownerId}/${req.params.project}/process`,
         body,
-        { httpsAgent: httpsAgent }
+        { httpsAgent: httpsAgent,
+          params: req.query.share ? { share: req.query.share } : undefined,
+         }
       )
       .then((resp) => res.status(201).jsonp(resp.data))
       .catch((err) => {
@@ -468,7 +486,9 @@ router.put(
         projectsURL +
           `${ownerId}/${req.params.project}/tool/${req.params.tool}`,
         req.body,
-        { httpsAgent: httpsAgent }
+        { httpsAgent: httpsAgent,
+          params: req.query.share ? { share: req.query.share } : undefined,
+         }
       )
       .then((_) => res.sendStatus(204))
       .catch((err) => res.status(500).jsonp("Error updating tool params"));
@@ -504,7 +524,9 @@ router.delete(
       .delete(
         projectsURL +
           `${ownerId}/${req.params.project}/img/${req.params.img}`,
-        { httpsAgent: httpsAgent }
+        { httpsAgent: httpsAgent,
+          params: req.query.share ? { share: req.query.share } : undefined,
+         }
       )
       .then((_) => res.sendStatus(204))
       .catch((err) =>
@@ -527,7 +549,9 @@ router.delete(
       .delete(
         projectsURL +
           `${ownerId}/${req.params.project}/tool/${req.params.tool}`,
-        { httpsAgent: httpsAgent }
+        { httpsAgent: httpsAgent,
+          params: req.query.share ? { share: req.query.share } : undefined,
+         }
       )
       .then((_) => res.sendStatus(204))
       .catch((err) =>

@@ -43,6 +43,7 @@ export function ProjectImageList({
   const view = searchParams.get("view") ?? "grid";
   const mode = searchParams.get("mode") ?? "edit";
   const owner = searchParams.get("owner");
+  const share = searchParams.get("share");  
 
   const [api, setApi] = useState<CarouselApi>();
   const [current, setCurrent] = useState(0);
@@ -195,6 +196,7 @@ useEffect(() => {
                           params.set("mode", mode);
                           params.set("view", "carousel");
                           if (owner) params.set("owner", owner); 
+                          if (share) params.set("share", share);   
 
                           router.push(`?${params.toString()}`);
                           qc.invalidateQueries({
@@ -222,6 +224,7 @@ useEffect(() => {
                           params.set("mode", mode);
                           params.set("view", "carousel");
                           if (owner) params.set("owner", owner);
+                          if (share) params.set("share", share);   
 
                           router.push(`?${params.toString()}`);
                           qc.invalidateQueries({
