@@ -8,18 +8,26 @@ import {
 } from "../ui/sidebar";
 import ProjectItem from "./project-item";
 import { useSession } from "@/providers/session-provider";
-import { useGetProjects } from "@/lib/queries/projects";
+import { useGetProjects, useGetSharedProject } from "@/lib/queries/projects"; // ⬅️ ADICIONADO useGetSharedProject
 import { Search } from "lucide-react";
 import { Button } from "../ui/button";
 import { useEffect, useState } from "react";
 import { Transition } from "@headlessui/react";
 import { Project } from "@/lib/projects";
+import { useSearchParams } from "next/navigation";
 
 export default function ProjectList() {
   const session = useSession();
   const uid = session.user._id;
   const token = session.token;
   const projects = useGetProjects(session.user._id, session.token);
+
+  const searchParams = useSearchParams();
+  const shareId = searchParams.get("share"); // ler o shareId da URL
+
+  // se houver shareId, tentamos ir buscar o projeto partilhado
+  const sharedProjectQuery = useGetSharedProject(shareId ?? "");
+
   const [searchOpen, setSearchOpen] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [filteredProjects, setFilteredProjects] = useState<Project[]>(
@@ -54,6 +62,8 @@ export default function ProjectList() {
     }
   }, [searchQuery, lastUpdated, searchOpen]);
 
+  const hasOwnProjects = projects.data && projects.data.length > 0;
+
   return (
     <SidebarGroup>
       <SidebarGroupLabel className="flex justify-between items-center">
@@ -63,7 +73,6 @@ export default function ProjectList() {
           className="size-fit p-1"
           onClick={() => {
             setSearchOpen(!searchOpen);
-            // if (inputRef.current) inputRef.current.focus();
             if (searchOpen) setLastUpdated(null);
             else setLastUpdated(new Date());
           }}
@@ -100,6 +109,7 @@ export default function ProjectList() {
                     <span className="pl-2">No search results.</span>
                   </SidebarMenuItem>
                 ))}
+
           {projects.isLoading && (
             <SidebarMenuItem className="flex flex-col gap-2 px-2 pt-2">
               {Array.from({ length: 3 }).map((_, i) => (
@@ -107,11 +117,35 @@ export default function ProjectList() {
               ))}
             </SidebarMenuItem>
           )}
-          {projects.data && projects.data.length === 0 && (
-            <SidebarMenuItem>
-              <span className="pl-2">Empty for now.</span>
-            </SidebarMenuItem>
-          )}
+
+          {/* CASO 1: Sem projetos do utilizador, mas estamos num projeto partilhado válido */}
+          {!projects.isLoading &&
+            projects.data &&
+            projects.data.length === 0 &&
+            shareId &&
+            sharedProjectQuery.isSuccess &&
+            sharedProjectQuery.data && (
+              <SidebarMenuItem>
+                <span className="pl-2">
+                  {sharedProjectQuery.data.name}{" "}
+                  <span className="text-xs text-muted-foreground">
+                    (Shared)
+                  </span>
+                </span>
+              </SidebarMenuItem>
+            )}
+
+          {/* CASO 2: Sem projetos e sem partilha ativa → "Empty for now." */}
+          {!projects.isLoading &&
+            projects.data &&
+            projects.data.length === 0 &&
+            (!shareId ||
+              sharedProjectQuery.isError ||
+              !sharedProjectQuery.data) && (
+              <SidebarMenuItem>
+                <span className="pl-2">Empty for now.</span>
+              </SidebarMenuItem>
+            )}
         </SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>

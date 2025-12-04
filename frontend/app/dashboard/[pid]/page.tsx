@@ -1,6 +1,7 @@
 "use client";
 
 import { Download, LoaderCircle, OctagonAlert, Play } from "lucide-react";
+import { fetchSharedProject } from "@/lib/projects";
 import { ProjectImageList } from "@/components/project-page/project-image-list";
 import { ViewToggle } from "@/components/project-page/view-toggle";
 import { AddImagesDialog } from "@/components/project-page/add-images-dialog";
@@ -76,6 +77,9 @@ export default function Project({
   const [processingSteps, setProcessingSteps] = useState<number>(1);
   const [waitingForPreview, setWaitingForPreview] = useState<string>("");
 
+  // estado para saber se o link de partilha foi revogado
+  const [shareRevoked, setShareRevoked] = useState(false);
+
   // flag para ignorar updates depois de cancelar
   const ignoreUpdatesRef = useRef(false);
 
@@ -104,6 +108,41 @@ export default function Project({
       router.replace(path);
     }
   }, [mode, view, path, router, projectResults.data]);
+
+  // link de partilha enquanto o editor está aberto em modo "edit"
+  useEffect(() => {
+    // só faz sentido se estivermos em modo edit e houver shareId
+    if (!shareId || mode !== "edit") return;
+
+    let cancelled = false;
+
+    async function pingShare() {
+      try {
+        await fetchSharedProject(shareId!);
+
+        if (cancelled) return;
+        // se estiver tudo ok, garantimos que o estado volta a "não revogado"
+        setShareRevoked(false);
+      } catch (err) {
+        if (cancelled) return;
+
+        console.error("Share heartbeat error", err);
+        // qualquer falha aqui significa que o link deixou de ser válido
+        setShareRevoked(true);
+      }
+    }
+
+    // ping inicial
+    pingShare();
+
+    // ping a cada 10 segundos
+    const interval = setInterval(pingShare, 10000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [shareId, mode]);
 
 useEffect(() => {
   function onProcessUpdate() {
@@ -262,12 +301,9 @@ useEffect(() => {
   processing,
 ]);
 
-  if (project.isError) {
-    const { title, description } = getErrorMessage(
-      "project-load",
-      project.error,
-    );
-
+if (project.isError) {
+  // caso especial: estamos num projeto aberto via link de partilha
+  if (shareId) {
     return (
       <div className="flex size-full justify-center items-center h-screen p-8">
         <Alert
@@ -275,12 +311,35 @@ useEffect(() => {
           className="w-fit max-w-[40rem] text-wrap truncate"
         >
           <OctagonAlert className="size-4" />
-          <AlertTitle>{title}</AlertTitle>
-          <AlertDescription>{description}</AlertDescription>
+          <AlertTitle>Link de partilha revogado</AlertTitle>
+          <AlertDescription>
+            Este link de partilha já não é válido. O proprietário revogou o
+              acesso a este projeto.
+          </AlertDescription>
         </Alert>
       </div>
     );
   }
+
+  // comportamento normal para projetos do próprio utilizador
+  const { title, description } = getErrorMessage(
+    "project-load",
+    project.error,
+  );
+
+  return (
+    <div className="flex size-full justify-center items-center h-screen p-8">
+      <Alert
+        variant="destructive"
+        className="w-fit max-w-[40rem] text-wrap truncate"
+      >
+        <OctagonAlert className="size-4" />
+        <AlertTitle>{title}</AlertTitle>
+        <AlertDescription>{description}</AlertDescription>
+      </Alert>
+    </div>
+  );
+}
 
   if (
     project.isLoading ||
@@ -361,6 +420,13 @@ const handleCancel = () => {
       preview={{ waiting: waitingForPreview, setWaiting: setWaitingForPreview }}
     >
       <div className="flex flex-col h-screen relative">
+        {/* Barra de aviso quando o link partilhado é revogado */}
+        {shareId && shareRevoked && (
+          <div className="w-full border-b border-destructive bg-destructive/10 text-destructive text-sm px-4 py-2 text-center">
+            O proprietário revogou o link. Já não podes editar este projeto.
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex flex-col xl:flex-row justify-center items-start xl:items-center xl:justify-between border-b border-sidebar-border py-2 px-2 md:px-3 xl:px-4 h-fit gap-2">
           <div className="flex items-center justify-between w-full xl:w-auto gap-2">
