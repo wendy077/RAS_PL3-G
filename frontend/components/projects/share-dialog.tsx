@@ -7,7 +7,7 @@ import { useProjectShareLinks } from "@/lib/queries/projects";
 import {
   useCreateShareLink,
   useRevokeShareLink,
-} from "@/lib/mutations/projects"; // ajusta caminho
+} from "@/lib/mutations/projects";
 import {
   Dialog,
   DialogContent,
@@ -16,10 +16,17 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Copy } from "lucide-react";
 import type { ShareLink } from "@/lib/projects";
-
+import { useUnsavedChanges } from "@/providers/project-provider";
+import { toast } from "@/hooks/use-toast";
 
 type Props = {
   projectId: string;
@@ -29,6 +36,8 @@ export function ShareProjectDialog({ projectId }: Props) {
   const [open, setOpen] = useState(false);
   const [lastCreatedUrl, setLastCreatedUrl] = useState<string | null>(null);
   const session = useSession();
+
+  const { hasUnsavedChanges } = useUnsavedChanges();
 
   const { data: links, isLoading } = useProjectShareLinks(
     session.user._id,
@@ -51,6 +60,17 @@ export function ShareProjectDialog({ projectId }: Props) {
   const [permission, setPermission] = useState<"read" | "edit">("read");
 
   const handleCreate = () => {
+    // bloquear partilha se houver alterações não guardadas
+    if (hasUnsavedChanges) {
+      toast({
+        variant: "destructive",
+        title: "Alterações não guardadas",
+        description:
+          "Ainda tens alterações por guardar neste projeto. Guarda antes de criar um link de partilha, para garantir que quem recebe o link vê a versão correta.",
+      });
+      return;
+    }
+
     createLink.mutate(permission, {
       onSuccess: (data) => {
         setLastCreatedUrl(data.url);
@@ -65,7 +85,15 @@ export function ShareProjectDialog({ projectId }: Props) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline">Share</Button>
+        {/* opcional: indicador visual de unsaved aqui */}
+        <Button variant="outline">
+          <span className="inline-flex items-center gap-1">
+            Share
+            {hasUnsavedChanges && (
+              <span className="inline-block h-2 w-2 rounded-full bg-amber-500" />
+            )}
+          </span>
+        </Button>
       </DialogTrigger>
       <DialogContent className="space-y-4">
         <DialogHeader>
@@ -87,7 +115,10 @@ export function ShareProjectDialog({ projectId }: Props) {
                 <SelectItem value="edit">Can edit</SelectItem>
               </SelectContent>
             </Select>
-            <Button onClick={handleCreate} disabled={createLink.isPending}>
+            <Button
+              onClick={handleCreate}
+              disabled={createLink.isPending}
+            >
               {createLink.isPending ? "Creating..." : "Create link"}
             </Button>
           </div>
@@ -107,7 +138,9 @@ export function ShareProjectDialog({ projectId }: Props) {
 
         <div className="space-y-2">
           <p className="text-sm font-medium">Active links</p>
-          {isLoading && <p className="text-xs text-muted-foreground">Loading...</p>}
+          {isLoading && (
+            <p className="text-xs text-muted-foreground">Loading...</p>
+          )}
 
           {!isLoading && (!links || links.length === 0) && (
             <p className="text-xs text-muted-foreground">
@@ -117,7 +150,7 @@ export function ShareProjectDialog({ projectId }: Props) {
 
           {!isLoading && links && links.length > 0 && (
             <div className="space-y-2 max-h-48 overflow-y-auto text-xs">
-              {links.map((l:ShareLink) => (
+              {links.map((l: ShareLink) => (
                 <div
                   key={l.id}
                   className="flex flex-col gap-1 border rounded px-2 py-1"

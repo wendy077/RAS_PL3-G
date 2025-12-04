@@ -11,6 +11,8 @@ interface ProjectContextData {
     waiting: string;
     setWaiting: (waiting: string) => void;
   };
+  hasUnsavedChanges: boolean;
+  setHasUnsavedChanges: (dirty: boolean) => void;
 }
 
 const ProjectContext = createContext<ProjectContextData | undefined>(undefined);
@@ -30,11 +32,21 @@ export function ProjectProvider({
   };
 }) {
   const [tools, setTools] = useState(project.tools);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
-  //  manter state tools alinhado com o project vindo do backend
+  // manter state tools alinhado com o project vindo do backend
   useEffect(() => {
     setTools(project.tools);
   }, [project.tools]);
+
+  // limpar o "dirty" quando o Apply terminar com sucesso
+  useEffect(() => {
+    if (preview.waiting === "__APPLY_DONE__") {
+      setHasUnsavedChanges(false);
+      // limpar o sentinel
+      preview.setWaiting("");
+    }
+  }, [preview.waiting, preview]);
 
   return (
     <ProjectContext.Provider
@@ -43,6 +55,8 @@ export function ProjectProvider({
         setProjectTools: setTools,
         currentImage,
         preview,
+        hasUnsavedChanges,
+        setHasUnsavedChanges,
       }}
     >
       {children}
@@ -80,4 +94,15 @@ export function usePreview() {
     throw new Error("usePreview() must be used within a ProjectProvider");
   }
   return context.preview;
+}
+
+export function useUnsavedChanges() {
+  const context = useContext(ProjectContext);
+  if (context === undefined) {
+    throw new Error("useUnsavedChanges() must be used within a ProjectProvider");
+  }
+  return {
+    hasUnsavedChanges: context.hasUnsavedChanges,
+    setHasUnsavedChanges: context.setHasUnsavedChanges,
+  };
 }

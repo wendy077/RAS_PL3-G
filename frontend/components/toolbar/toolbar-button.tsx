@@ -14,6 +14,7 @@ import {
   useCurrentImage,
   usePreview,
   useProjectInfo,
+  useUnsavedChanges,
 } from "@/providers/project-provider";
 import {
   useAddProjectTool,
@@ -58,6 +59,8 @@ export function ToolbarButton({
   const session = useSession();
   const project = useProjectInfo();
   const preview = usePreview();
+  const { setHasUnsavedChanges } = useUnsavedChanges();
+
   const variant =
     project.tools.find((t) => t.procedure === tool.procedure) !== undefined
       ? "default"
@@ -128,8 +131,11 @@ export function ToolbarButton({
       },
       {
         onSuccess: () => {
+          console.log("Preview started for", tool.procedure);
           setWaiting(true);
           preview.setWaiting(tool.procedure);
+          // o projeto passou a ter alterações não aplicadas
+          setHasUnsavedChanges(true);
           setTimeout(
             () => setTimedout(true),
             10000 * (project.tools.length + 1),
@@ -148,6 +154,12 @@ export function ToolbarButton({
   }
 
   function handleAddTool(preview?: boolean) {
+    const afterSuccess = () => {
+      // tools diferentes do que estava aplicado
+      setHasUnsavedChanges(true);
+      if (preview) handlePreview();
+    };
+
     if (prevTool) {
       updateTool.mutate(
         {
@@ -159,9 +171,7 @@ export function ToolbarButton({
           ownerId: ownerParam,   
         },
         {
-          onSuccess: () => {
-            if (preview) handlePreview();
-          },
+          onSuccess: afterSuccess,
           onError: (error) => {
             const { title, description } = getErrorMessage("project-update", error);
             toast({
@@ -181,9 +191,7 @@ export function ToolbarButton({
               },
             },
             {
-              onSuccess: () => {
-                if (preview) handlePreview();
-              },
+              onSuccess: afterSuccess,
               onError: (error) => {
                 const { title, description } = getErrorMessage("project-update", error);
                 toast({
@@ -249,7 +257,6 @@ export function ToolbarButton({
         socket.data.off("preview-ready");
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket.data]);
 
   useEffect(() => {

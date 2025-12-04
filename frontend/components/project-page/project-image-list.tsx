@@ -27,6 +27,7 @@ import { ProjectImage } from "./project-image";
 import { useQueryClient } from "@tanstack/react-query";
 import ProjectText from "./project-text";
 import { getAiErrorMessage } from "@/lib/error-messages"; 
+import { usePreview } from "@/providers/project-provider";
 
 export function ProjectImageList({
   setCurrentImageId,
@@ -56,6 +57,7 @@ export function ProjectImageList({
   const project = useProjectInfo();
   const session = useSession();
   const { toast } = useToast();
+  const preview = usePreview();
 
   const qc = useQueryClient();
   const socket = useGetSocket(session.token);
@@ -97,6 +99,9 @@ useEffect(() => {
           description,
           variant: "destructive",
         });
+      } finally {
+          // preview falhou → limpa o estado de preview “em curso”
+          preview.setWaiting("");
       }
     });
 

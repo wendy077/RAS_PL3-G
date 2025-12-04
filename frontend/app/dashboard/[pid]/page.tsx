@@ -143,6 +143,10 @@ useEffect(() => {
             if (!isMobile) sidebar.setOpen(true);
             setProcessingProgress(0);
             setProcessingSteps(1);
+
+            // avisar o ProjectProvider que o Apply terminou
+            setWaitingForPreview("__APPLY_DONE__");
+
             const params = new URLSearchParams();
             params.set("mode", "results");
             params.set("view", "grid");
