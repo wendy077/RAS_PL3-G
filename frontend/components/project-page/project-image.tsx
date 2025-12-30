@@ -42,12 +42,18 @@ export function ProjectImage({ image, animation = true }: ImageItemProps) {
   const [loaded, setLoaded] = useState<boolean>(false);
   const [open, setOpen] = useState<boolean>(false);
 
-  const { _id: pid } = useProjectInfo();
+  const { _id: pid, version } = useProjectInfo();
   const session = useSession();
+  const ownerId = searchParams.get("owner") ?? session.user._id;
+  const shareId = searchParams.get("share") ?? undefined;
+
+  const projectInfo = useProjectInfo(); // para ter version também
   const deleteImage = useDeleteProjectImages(
     session.user._id,
     pid as string,
     session.token,
+    ownerId,
+    shareId,
   );
   const downloadImage = useDownloadProjectImage(mode === "results");
   const { toast } = useToast();
@@ -145,10 +151,8 @@ export function ProjectImage({ image, animation = true }: ImageItemProps) {
             onClick={(e) => {
               deleteImage.mutate(
                 {
-                  uid: session.user._id,
-                  pid: pid as string,
-                  token: session.token,
                   imageIds: [image._id],
+                  projectVersion: projectInfo.version,
                 },
                 {
                   onSuccess: () => {

@@ -26,8 +26,9 @@ export function AddImagesDialog() {
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const { toast } = useToast();
 
-  const { _id: pid } = useProjectInfo();
+  const { _id: pid, version} = useProjectInfo();
   const session = useSession();
+
   const addImages = useAddProjectImages(
     session.user._id,
     pid as string,
@@ -45,10 +46,8 @@ export function AddImagesDialog() {
   function handleAdd() {
     addImages.mutate(
       {
-        uid: session.user._id,
-        pid: pid as string,
-        token: session.token,
         images: imageFiles,
+        projectVersion: version,
       },
       {
         onSuccess: () => {

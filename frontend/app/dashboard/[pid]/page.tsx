@@ -63,8 +63,20 @@ export default function Project({
   const shareId = searchParams.get("share") ?? undefined;
   const project = useGetProject(session.user._id, pid, session.token, ownerId, shareId);
   const downloadProjectImages = useDownloadProject();
-  const processProject = useProcessProject();
-  const cancelProcess = useCancelProjectProcess(); 
+  const processProject = useProcessProject(
+    session.user._id,
+    pid,
+    session.token,
+    ownerId,
+    shareId,
+  );
+  const cancelProcess = useCancelProjectProcess(
+    session.user._id,
+    pid,
+    session.token,
+    ownerId,
+    shareId,
+  );
   const downloadProjectResults = useDownloadProjectResults();
   const downloadProjectPdf = useDownloadProjectPdf();
   const router = useRouter();
@@ -145,7 +157,46 @@ export default function Project({
   }, [shareId, mode]);
 
 useEffect(() => {
-  function onProcessUpdate() {
+  if (!socket.data) return;
+
+  // entrar na room do projeto
+  socket.data.emit("join-project", pid);
+
+  const onProjectUpdated = (evt: { projectId: string; version?: number }) => {
+    if (!evt || evt.projectId !== pid) return;
+
+    // 1) refetch do projeto
+    qc.invalidateQueries({
+      queryKey: ["project", session.user._id, pid, session.token, ownerId, shareId],
+      refetchType: "all",
+    });
+
+    // 2) imagens e results (se a alteração pode impactar)
+    qc.invalidateQueries({
+      queryKey: ["projectImages", session.user._id, pid, session.token, ownerId, shareId],
+      refetchType: "all",
+    });
+    qc.invalidateQueries({
+      queryKey: ["projectResults", session.user._id, pid, session.token, ownerId, shareId],
+      refetchType: "all",
+    });
+
+    toast({
+      title: "Projeto atualizado",
+      description: "O projeto foi alterado por outro utilizador. Atualizámos a versão mais recente.",
+    });
+  };
+
+  socket.data.on("project-updated", onProjectUpdated);
+
+  return () => {
+    socket.data.off("project-updated", onProjectUpdated);
+    socket.data.emit("leave-project", pid);
+  };
+}, [socket.data, pid, qc, session.user._id, session.token, ownerId, shareId, toast]);
+
+useEffect(() => {
+  function onProcessUpdate(msgId: string) {
     // se já cancelámos ou já não estamos em processamento, ignora tudo
     if (ignoreUpdatesRef.current || !processing) return;
 
@@ -377,11 +428,7 @@ const handleCancel = () => {
   // cancelar no backend
   cancelProcess.mutate(
     {
-      uid: session.user._id,
-      pid: project.data._id,
-      token: session.token,
-      ownerId,
-      shareId
+      projectVersion: project.data.version
     },
     {
       onSuccess: () => {
@@ -452,7 +499,9 @@ const handleCancel = () => {
                     onClick={() => {
                       // começa a contar o tempo
                       processStartTimeRef.current = performance.now();
-
+                      setProcessing(true);        
+                      sidebar.setOpen(false);
+                      
                       const aiProcedures = [
                         "bg_remove_ai",
                         "cut_ai",
@@ -468,11 +517,7 @@ const handleCancel = () => {
 
                       processProject.mutate(
                         {
-                          uid: session.user._id,
-                          pid: project.data._id,
-                          token: session.token,
-                          ownerId,
-                          shareId,
+                          projectVersion: project.data.version
                         },
                         {
                           onSuccess: () => {

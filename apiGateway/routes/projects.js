@@ -25,6 +25,24 @@ const upload = multer({ storage: storage });
 
 const projectsURL = "https://projects:9001/";
 
+function forwardAxiosError(res, err, fallbackMsg) {
+  const status = err.response?.status || 500;
+  const data =
+    err.response?.data ||
+    (err.code === "ECONNREFUSED" ? "Projects service unavailable" : fallbackMsg);
+
+  // reenviar versão se existir
+  const v = err.response?.headers?.["x-project-version"];
+  if (v) res.set("X-Project-Version", v);
+
+  console.error("[API-GW]", status, fallbackMsg, {
+    data: err.response?.data,
+    message: err.message,
+  });
+
+  return res.status(status).jsonp(data);
+}
+
 // TODO Verify jwt
 
 /*
@@ -74,10 +92,8 @@ router.get("/:user/:project/share", auth.checkToken, (req, res) => {
       headers: { Authorization: req.headers["authorization"] },
     })
     .then((resp) => res.status(200).jsonp(resp.data))
-    .catch((err) => {
-      console.error("Error listing share links:", err.response?.data);
-      res.status(500).jsonp("Error listing share links");
-    });
+    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
+
 });
 
 // criar link de partilha
@@ -92,10 +108,8 @@ router.post("/:user/:project/share", auth.checkToken, (req, res) => {
       },
     )
     .then((resp) => res.status(201).jsonp(resp.data))
-    .catch((err) => {
-      console.error("Error creating share link:", err.response?.data);
-      res.status(500).jsonp("Error creating share link");
-    });
+    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
+
 });
 
 // resolver link de partilha (público – sem auth)
@@ -125,11 +139,8 @@ router.delete("/:user/share/:shareId", auth.checkToken, (req, res) => {
       headers: { Authorization: req.headers["authorization"] },
     })
     .then(() => res.sendStatus(204))
-    .catch((err) => {
-      console.error("Error revoking share link:", err.response?.data);
-      const status = err.response?.status || 500;
-      res.status(status).jsonp("Error revoking share link");
-    });
+    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
+
 });
 
 // obter projeto completo via shareId (público, sem auth)
@@ -156,7 +167,7 @@ router.get("/:user", auth.checkToken, function (req, res, next) {
   axios
     .get(projectsURL + `${req.params.user}`, { httpsAgent: httpsAgent })
     .then((resp) => res.status(200).jsonp(resp.data))
-    .catch((err) => res.status(500).jsonp("Error getting users"));
+    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
 });
 
 /**
@@ -172,7 +183,7 @@ router.get("/:user/:project", auth.checkToken, function (req, res, next) {
       params: req.query.share ? { share: req.query.share } : undefined,
     })
     .then((resp) => res.status(200).jsonp(resp.data))
-    .catch((err) => res.status(500).jsonp("Error getting project"));
+    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
 });
 
 /**
@@ -197,7 +208,7 @@ router.get(
       .then((resp) => {
         res.status(200).send(resp.data);
       })
-      .catch((err) => res.status(500).jsonp("Error getting project image"));
+      .catch((err) => forwardAxiosError(res, err, "mensagem fallback"));
   }
 );
 
@@ -216,7 +227,7 @@ router.get("/:user/:project/imgs", auth.checkToken, function (req, res, next) {
     .then((resp) => {
       res.status(200).send(resp.data);
     })
-    .catch((err) => res.status(500).jsonp("Error getting project images"));
+    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
 });
 
 /**
@@ -236,29 +247,36 @@ router.get(
         params: req.query.share ? { share: req.query.share } : undefined,
       })
       .then((resp) => res.status(200).send(resp.data))
-      .catch((err) =>
-        res.status(500).jsonp("Error getting processing results file")
-      );
+      .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
   }
 );
 
   // Cancelar processamento de um projeto
-  router.delete("/:user/:project/process", auth.checkToken, function (req, res, next) {
-    const callerId = req.params.user;    // quem está autenticado (runner)
-    const ownerId = req.query.owner || req.params.user;
-    axios
-      .delete(
-        projectsURL + `${ownerId}/${req.params.project}/process`, 
-        { 
-          httpsAgent: httpsAgent,
-          data: { runnerUserId: callerId },
-         }
-      )
-      .then((resp) => res.sendStatus(resp.status))
-      .catch((err) =>
-        res.status(500).jsonp("Error cancelling project processing")
-      );
-  });
+router.delete("/:user/:project/process", auth.checkToken, (req, res) => {
+  const ownerId = req.query.owner || req.params.user;
+  const callerId = req.authUserId || req.params.user;
+
+
+  axios
+    .delete(projectsURL + `${ownerId}/${req.params.project}/process`, {
+      httpsAgent,
+      params: req.query.share ? { share: req.query.share } : undefined,
+      headers: {
+        Authorization: req.headers["authorization"],
+        "X-Project-Version": req.headers["x-project-version"],
+        "X-Caller-Id": callerId,
+      },
+    })
+    .then((resp) => {
+      //  reenviar versão se vier do projects-ms
+      if (resp.headers?.["x-project-version"]) {
+        res.set("X-Project-Version", resp.headers["x-project-version"]);
+      }
+      return res.sendStatus(204);
+    })
+    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
+
+});
 
 
 /**
@@ -282,9 +300,7 @@ router.get(
       .then((resp) => {
         res.status(200).send(resp.data);
       })
-      .catch((err) =>
-        res.status(500).jsonp("Error getting processing results")
-      );
+      .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
   }
 );
 
@@ -299,7 +315,7 @@ router.post("/:user", auth.checkToken, function (req, res, next) {
       httpsAgent: httpsAgent,
     })
     .then((resp) => res.status(201).jsonp(resp.data))
-    .catch((err) => res.status(500).jsonp("Error creating new project"));
+    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
 });
 
 /**
@@ -311,8 +327,8 @@ router.post(
   "/:user/:project/preview/:img",
   auth.checkToken,
   function (req, res, next) {
-    const callerId = req.params.user;                 // quem está autenticado (runner)
-    const ownerId = req.query.owner || callerId;      // dono do projeto
+    const ownerId = req.query.owner || req.params.user;
+    const callerId = req.authUserId || req.params.user;
 
     const body = {
       ...req.body,
@@ -324,14 +340,18 @@ router.post(
         projectsURL +
           `${ownerId}/${req.params.project}/preview/${req.params.img}`,
         body,
-        { httpsAgent: httpsAgent,
-        params: req.query.share ? { share: req.query.share } : undefined, }
+        { 
+          httpsAgent: httpsAgent,
+          params: req.query.share ? { share: req.query.share } : undefined, 
+        
+        headers: {
+          Authorization: req.headers["authorization"],
+          "X-Caller-Id": callerId,
+        },
+      }
       )
       .then((resp) => res.status(201).jsonp(resp.data))
-      .catch((err) => {
-        console.log(err);
-        res.status(500).jsonp("Error requesting image preview");
-      });
+      .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
   }
 );
 
@@ -347,6 +367,7 @@ router.post(
   auth.checkToken,
   function (req, res, next) {
     const ownerId = req.query.owner || req.params.user;
+    const callerId = req.authUserId || req.params.user;
 
     const data = new FormData();
     data.append("image", req.file.buffer, {
@@ -360,18 +381,24 @@ router.post(
         data,
         {
           headers: {
-            ...data.getHeaders(),                     // inclui content-type + boundary correto
-            Authorization: req.headers["authorization"],   
+            ...data.getHeaders(),                     
+            Authorization: req.headers["authorization"], 
+            "X-Project-Version": req.headers["x-project-version"],
+            "X-Caller-Id": callerId,
           },
           httpsAgent: httpsAgent,
-          params: req.query.share ? { share: req.query.share } : undefined, // <-- importante
+          params: req.query.share ? { share: req.query.share } : undefined, 
+          
         }
       )
-      .then(() => res.sendStatus(201))
-      .catch((err) => {
-        console.error("UPLOAD ERROR:", err.response?.data || err);
-        res.status(500).jsonp("Error adding image to project");
-      });
+      .then((resp) => {
+        if (resp.headers?.["x-project-version"]) {
+          res.set("X-Project-Version", resp.headers["x-project-version"]);
+        }
+        return res.sendStatus(204);
+      })
+    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
+
   }
 );
 
@@ -382,16 +409,29 @@ router.post(
  */
 router.post("/:user/:project/tool", auth.checkToken, function (req, res, next) {
   const ownerId = req.query.owner || req.params.user;
-  axios
-    .post(
-      projectsURL + `${ownerId}/${req.params.project}/tool`,
-      req.body,
-      { httpsAgent: httpsAgent,
-        params: req.query.share ? { share: req.query.share } : undefined,
-       }
-    )
-    .then((resp) => res.status(201).jsonp(resp.data))
-    .catch((err) => res.status(500).jsonp("Error adding tool to project"));
+  const callerId = req.authUserId || req.params.user;
+
+  axios.post(
+    projectsURL + `${ownerId}/${req.params.project}/tool`,
+    req.body,
+    {
+      httpsAgent,
+      params: req.query.share ? { share: req.query.share } : undefined,
+      headers: {
+        Authorization: req.headers["authorization"],
+        "X-Project-Version": req.headers["x-project-version"],
+        "X-Caller-Id": callerId,
+      },
+    }
+  )
+
+    .then((resp) => {
+      if (resp.headers?.["x-project-version"]) {
+        res.set("X-Project-Version", resp.headers["x-project-version"]);
+      }
+      return res.status(201).jsonp(resp.data);
+    })
+    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
 });
 
 /**
@@ -404,16 +444,29 @@ router.post(
   auth.checkToken,
   function (req, res, next) {
     const ownerId = req.query.owner || req.params.user;
+    const callerId = req.authUserId || req.params.user;
+
     axios
       .post(
         projectsURL + `${ownerId}/${req.params.project}/reorder`,
         req.body,
         { httpsAgent: httpsAgent,
           params: req.query.share ? { share: req.query.share } : undefined,
+          headers: {
+            Authorization: req.headers["authorization"],
+            "X-Project-Version": req.headers["x-project-version"],
+            "X-Caller-Id": callerId,
+          },
          }
       )
-      .then((resp) => res.status(201).jsonp(resp.data))
-      .catch((err) => res.status(500).jsonp("Error reordering tools"));
+
+      .then((resp) => {
+        if (resp.headers?.["x-project-version"]) {
+          res.set("X-Project-Version", resp.headers["x-project-version"]);
+        }
+        return res.status(201).jsonp(resp.data);
+      })
+      .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
   }
 );
 
@@ -426,8 +479,8 @@ router.post(
   "/:user/:project/process",
   auth.checkToken,
   function (req, res, next) {
-    const callerId = req.params.user;                 // quem está autenticado (runner)
-    const ownerId = req.query.owner || callerId;      // dono do projeto (owner)
+    const ownerId = req.query.owner || req.params.user;
+    const callerId = req.authUserId || req.params.user;
 
     const body = {
       ...req.body,
@@ -440,19 +493,23 @@ router.post(
         body,
         { httpsAgent: httpsAgent,
           params: req.query.share ? { share: req.query.share } : undefined,
+
+          headers: {
+            Authorization: req.headers["authorization"],
+            "X-Project-Version": req.headers["x-project-version"],
+            "X-Caller-Id": callerId,
+          },
          }
       )
-      .then((resp) => res.status(201).jsonp(resp.data))
-      .catch((err) => {
-        if (err.response) {
-          return res
-            .status(err.response.status)
-            .jsonp(err.response.data);
-        }
 
-        console.error("Error requesting project processing:", err.message);
-        return res.status(500).jsonp("Error requesting project processing");
-      });
+      .then((resp) => {
+        if (resp.headers?.["x-project-version"]) {
+          res.set("X-Project-Version", resp.headers["x-project-version"]);
+        }
+        return res.status(201).jsonp(resp.data);
+      })
+    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
+
   }
 );
 
@@ -463,12 +520,26 @@ router.post(
  */
 router.put("/:user/:project", auth.checkToken, function (req, res, next) {
   const ownerId = req.query.owner || req.params.user;
+  const callerId = req.authUserId || req.params.user;
+
   axios
     .put(projectsURL + `${ownerId}/${req.params.project}`, req.body, {
-      httpsAgent: httpsAgent,
+      httpsAgent,
+      params: req.query.share ? { share: req.query.share } : undefined, 
+      headers: {
+        Authorization: req.headers["authorization"],
+        "X-Project-Version": req.headers["x-project-version"],
+        "X-Caller-Id": callerId,
+      },
     })
-    .then((_) => res.sendStatus(204))
-    .catch((err) => res.status(500).jsonp("Error updating project details"));
+    .then((resp) => {
+      if (resp.headers?.["x-project-version"]) {
+        res.set("X-Project-Version", resp.headers["x-project-version"]);
+      }
+      return res.sendStatus(204);
+    })
+    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
+
 });
 
 /**
@@ -481,6 +552,8 @@ router.put(
   auth.checkToken,
   function (req, res, next) {
     const ownerId = req.query.owner || req.params.user;
+    const callerId = req.authUserId || req.params.user;
+
     axios
       .put(
         projectsURL +
@@ -488,10 +561,21 @@ router.put(
         req.body,
         { httpsAgent: httpsAgent,
           params: req.query.share ? { share: req.query.share } : undefined,
+          headers: {
+            Authorization: req.headers["authorization"],
+            "X-Project-Version": req.headers["x-project-version"],
+            "X-Caller-Id": callerId,
+          },
          }
       )
-      .then((_) => res.sendStatus(204))
-      .catch((err) => res.status(500).jsonp("Error updating tool params"));
+
+      .then((resp) => {
+        if (resp.headers?.["x-project-version"]) {
+          res.set("X-Project-Version", resp.headers["x-project-version"]);
+        }
+        return res.sendStatus(204);
+      })
+      .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
   }
 );
 
@@ -500,14 +584,33 @@ router.put(
  * @body Empty
  * @returns Empty
  */
+/**
+ * Delete a user's project
+ * @body Empty
+ * @returns Empty
+ */
 router.delete("/:user/:project", auth.checkToken, function (req, res, next) {
   const ownerId = req.query.owner || req.params.user;
+  const callerId = req.authUserId || req.params.user;
+
   axios
     .delete(projectsURL + `${ownerId}/${req.params.project}`, {
-      httpsAgent: httpsAgent,
+      httpsAgent,
+      params: req.query.share ? { share: req.query.share } : undefined,
+      headers: {
+        Authorization: req.headers["authorization"],
+        "X-Project-Version": req.headers["x-project-version"],
+        "X-Caller-Id": callerId,
+      },
     })
-    .then((_) => res.sendStatus(204))
-    .catch((err) => res.status(500).jsonp("Error deleting project"));
+    .then((resp) => {
+      if (resp.headers?.["x-project-version"]) {
+        res.set("X-Project-Version", resp.headers["x-project-version"]);
+      }
+      return res.sendStatus(204);
+    })
+    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
+
 });
 
 /**
@@ -520,18 +623,30 @@ router.delete(
   auth.checkToken,
   function (req, res, next) {
     const ownerId = req.query.owner || req.params.user;
+    const callerId = req.authUserId || req.params.user;
+
     axios
       .delete(
         projectsURL +
           `${ownerId}/${req.params.project}/img/${req.params.img}`,
         { httpsAgent: httpsAgent,
           params: req.query.share ? { share: req.query.share } : undefined,
+          headers: {
+            Authorization: req.headers["authorization"],
+            "X-Project-Version": req.headers["x-project-version"],
+            "X-Caller-Id": callerId,
+          },
          }
       )
-      .then((_) => res.sendStatus(204))
-      .catch((err) =>
-        res.status(500).jsonp("Error deleting image from project")
-      );
+
+      .then((resp) => {
+        if (resp.headers?.["x-project-version"]) {
+          res.set("X-Project-Version", resp.headers["x-project-version"]);
+        }
+        return res.sendStatus(204);
+      })
+    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
+
   }
 );
 
@@ -545,18 +660,30 @@ router.delete(
   auth.checkToken,
   function (req, res, next) {
     const ownerId = req.query.owner || req.params.user;
+    const callerId = req.authUserId || req.params.user;
+
     axios
       .delete(
         projectsURL +
           `${ownerId}/${req.params.project}/tool/${req.params.tool}`,
         { httpsAgent: httpsAgent,
           params: req.query.share ? { share: req.query.share } : undefined,
+          headers: {
+            Authorization: req.headers["authorization"],
+            "X-Project-Version": req.headers["x-project-version"],
+            "X-Caller-Id": callerId,
+          },
          }
       )
-      .then((_) => res.sendStatus(204))
-      .catch((err) =>
-        res.status(500).jsonp("Error removing tool from project")
-      );
+
+      .then((resp) => {
+        if (resp.headers?.["x-project-version"]) {
+          res.set("X-Project-Version", resp.headers["x-project-version"]);
+        }
+        return res.sendStatus(204);
+      })
+    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
+
   }
 );
 

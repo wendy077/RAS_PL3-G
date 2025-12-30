@@ -23,3 +23,16 @@ module.exports.delete = (user_id, project_id) => {
 // Devolve o projeto que contém este shareId
 module.exports.getOneByShareId = (shareId) =>
   Project.findOne({ "sharedLinks.id": shareId }).exec();
+
+module.exports.updateIfVersion = async (user_id, project_id, project, expectedVersion) => {
+  const raw = project.toObject ? project.toObject() : project;
+
+  // remove campos que não se quer "setar"
+  const { _id, user_id: _uid, version, __v, ...rest } = raw;
+
+  return await Project.findOneAndUpdate(
+    { user_id: user_id, _id: project_id, version: expectedVersion },
+    { $set: rest, $inc: { version: 1 } },
+    { new: true } // devolve documento já com versão incrementada
+  ).exec();
+};

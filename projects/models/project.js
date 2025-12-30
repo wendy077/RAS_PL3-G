@@ -17,6 +17,7 @@ const projectSchema = new mongoose.Schema({
   user_id: { type: mongoose.Schema.Types.ObjectId, required: true },
   imgs: { type: [imgSchema], default: [] },
   tools: { type: [toolSchema], default: [] },
+  version: { type: Number, default: 0 },
 
   // número de ferramentas avançadas já “pagas” neste projeto
   chargedAdvancedTools: { type: Number, default: 0 },

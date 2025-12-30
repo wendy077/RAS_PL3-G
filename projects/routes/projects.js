@@ -27,6 +27,7 @@ const Project = require("../controllers/project");
 const Process = require("../controllers/process");
 const Result = require("../controllers/result");
 const Preview = require("../controllers/preview");
+const jwt = require("jsonwebtoken");
 
 const {
   get_image_docker,
@@ -39,6 +40,8 @@ const {
   checkSharePermission,
   requireEditPermission
 } = require("../middleware/shareAuth");
+
+const { requireProjectVersion } = require("../middleware/projectVersion");
 
 const storage = multer.memoryStorage();
 var upload = multer({ storage: storage });
@@ -90,6 +93,22 @@ function advanced_tool_num(project) {
   const adv_ops = newTools > 0 ? newTools * project.imgs.length : 0;
 
   return { totalAdv, charged, newTools, adv_ops };
+}
+function getCallerId(req) {
+  // 1) se o api-gateway mandar x-caller-id, usa
+  const forwarded = req.headers["x-caller-id"];
+  if (forwarded) return forwarded;
+
+  // 2) senão, extrai do JWT Authorization (SEM verify)
+  const auth = req.headers["authorization"];
+  if (auth && auth.startsWith("Bearer ")) {
+    const token = auth.slice("Bearer ".length);
+    const payload = jwt.decode(token);
+    if (payload?.id) return payload.id;
+  }
+
+  // 3) fallback: owner
+  return req.params.user;
 }
 
 // TODO process message according to type of output
@@ -456,7 +475,10 @@ router.get("/share/:shareId/project", async (req, res) => {
       name: project.name,
       tools: project.tools,
       imgs: [],
-      permission: link.permission, 
+      permission: link.permission,
+      version: project.version, 
+      chargedAdvancedTools: project.chargedAdvancedTools || 0,
+      pendingAdvancedOps: project.pendingAdvancedOps || 0,
     };
 
     // tentar usar resultados mais recentes
@@ -562,6 +584,7 @@ router.get("/:user", (req, res, next) => {
         ans.push({
           _id: p._id,
           name: p.name,
+          version: p.version
         });
       }
 
@@ -579,6 +602,7 @@ router.get("/:user/:project", checkSharePermission, (req, res, next) => {
         name: project.name,
         tools: project.tools,
         imgs: [],
+        version: project.version,
       };
 
       for (let img of project.imgs) {
@@ -787,7 +811,7 @@ router.post("/:user", (req, res, next) => {
 // Preview an image
 router.post("/:user/:project/preview/:img", checkSharePermission, requireEditPermission, (req, res, next) => {
   const ownerId = req.params.user;
-  const runnerUserId = req.body.runnerUserId || ownerId;
+  const runnerUserId = getCallerId(req);
 
   Project.getOne(ownerId, req.params.project)
     .then(async (project) => {
@@ -890,8 +914,8 @@ router.post("/:user/:project/preview/:img", checkSharePermission, requireEditPer
 
 // Add new image to a project
 router.post(
-  "/:user/:project/img", checkSharePermission, requireEditPermission, upload.single("image"),
-  async (req, res, next) => {
+  "/:user/:project/img", checkSharePermission, requireEditPermission, requireProjectVersion, upload.single("image"),
+  async (req, res) => {
     console.log("PROJECTS-MS /:user/:project/img HIT, file =", !!req.file);
     if (!req.file) {
       res.status(400).jsonp("No file found");
@@ -938,11 +962,24 @@ router.post(
               og_img_key: og_key,
             });
 
-            Project.update(req.params.user, req.params.project, project)
-              .then((_) => res.sendStatus(204))
-              .catch((_) =>
-                res.status(503).jsonp(`Error updating project information`)
-              );
+            const updated = await Project.updateIfVersion(
+              req.params.user,
+              req.params.project,
+              project,
+              req.expectedVersion
+            );
+
+            if (!updated) {
+              const fresh = await Project.getOne(req.params.user, req.params.project);
+              return res.status(409).jsonp({
+                message: "Project version conflict",
+                serverVersion: fresh?.version ?? null,
+              });
+            }
+
+            res.set("X-Project-Version", String(updated.version));
+            return res.sendStatus(204);
+
           } catch (_) {
             res.status(501).jsonp(`Updating project information`);
           }
@@ -955,7 +992,7 @@ router.post(
 );
 
 // Add new tool to a project
-router.post("/:user/:project/tool", checkSharePermission, requireEditPermission, (req, res, next) => {
+router.post("/:user/:project/tool", checkSharePermission, requireEditPermission, requireProjectVersion, (req, res, next) => {
   // Reject posts to tools that don't fullfil the requirements
   if (!req.body.procedure || !req.body.params) {
     res
@@ -969,64 +1006,96 @@ router.post("/:user/:project/tool", checkSharePermission, requireEditPermission,
   if (!advanced_tools.includes(req.body.procedure))
     required_types.push("anonymous");
 
+  const callerId = getCallerId(req);
+
   axios
-    .get(users_ms + `${req.params.user}/type`, { httpsAgent: httpsAgent })
+    .get(users_ms + `${callerId}/type`, { httpsAgent })
     .then((resp) => {
       // Check user type before proceeding
       if (!required_types.includes(resp.data.type)) {
-        return res.status(403).jsonp(`User type can't use this tool`); // Return a 403 Forbidden
+        return res.status(403).jsonp(`User type can't use this tool`);
       }
 
       // Get project and insert new tool
       Project.getOne(req.params.user, req.params.project)
-        .then((project) => {
-          const tool = {
-            position: project["tools"].length,
-            ...req.body,
-          };
+        .then(async (project) => {
+          const tool = { position: project.tools.length, ...req.body };
+          project.tools.push(tool);
 
-          project["tools"].push(tool);
+          const updated = await Project.updateIfVersion(
+            req.params.user,
+            req.params.project,
+            project,
+            req.expectedVersion
+          );
 
-          Project.update(req.params.user, req.params.project, project)
-            .then((_) => res.sendStatus(204))
-            .catch((_) =>
-              res.status(503).jsonp(`Error updating project information`)
-            );
+          if (!updated) {
+            const fresh = await Project.getOne(req.params.user, req.params.project);
+            return res.status(409).jsonp({
+              message: "Project version conflict",
+              serverVersion: fresh?.version ?? null,
+            });
+          }
+
+          res.set("X-Project-Version", String(updated.version));
+          return res.sendStatus(204);
         })
-        .catch((_) => res.status(501).jsonp(`Error acquiring user's project`));
+        .catch(() => res.status(501).jsonp(`Error acquiring user's project`));
     })
-    .catch((_) => res.send(401).jsonp(`Error accessing picturas-user-ms`));
+    .catch(() => res.status(401).jsonp(`Error accessing users-ms`));
 });
 
 // Reorder tools of a project
-router.post("/:user/:project/reorder", checkSharePermission, requireEditPermission, (req, res, next) => {
-  // Remove all tools from project and reinsert them according to new order
-  Project.getOne(req.params.user, req.params.project)
-    .then((project) => {
-      project["tools"] = [];
+router.post(
+  "/:user/:project/reorder",
+  checkSharePermission,
+  requireEditPermission,
+  requireProjectVersion,
+  (req, res) => {
+    Project.getOne(req.params.user, req.params.project)
+      .then(async (project) => {
+        project.tools = [];
 
-      for (let t of req.body) {
-        const tool = {
-          position: project["tools"].length,
-          ...t,
-        };
+        for (let t of req.body) {
+          project.tools.push({
+            position: project.tools.length,
+            ...t,
+          });
+        }
 
-        project["tools"].push(tool);
-      }
-
-      Project.update(req.params.user, req.params.project, project)
-        .then((project) => res.status(204).jsonp(project))
-        .catch((_) =>
-          res.status(503).jsonp(`Error updating project information`)
+        const updated = await Project.updateIfVersion(
+          req.params.user,
+          req.params.project,
+          project,
+          req.expectedVersion
         );
-    })
-    .catch((_) => res.status(501).jsonp(`Error acquiring user's project`));
-});
+
+        if (!updated) {
+          const fresh = await Project.getOne(req.params.user, req.params.project);
+          return res.status(409).jsonp({
+            message: "Project version conflict",
+            serverVersion: fresh?.version ?? null,
+          });
+        }
+
+        res.set("X-Project-Version", String(updated.version));
+        return res.sendStatus(204);
+      })
+      .catch(() => res.status(501).jsonp(`Error acquiring user's project`));
+  }
+);
 
 // Process a specific project
-router.post("/:user/:project/process", checkSharePermission, requireEditPermission, (req, res, next) => {
+router.post("/:user/:project/process", checkSharePermission, requireEditPermission, requireProjectVersion, (req, res) => {
   const ownerId = req.params.user;
-  const runnerUserId = req.body.runnerUserId || ownerId;
+  const runnerUserId = getCallerId(req); // <-- agora pode vir do body
+  
+  console.log("[CALLER]", {
+  userParam: req.params.user,
+  forwarded: req.headers["x-caller-id"],
+  hasAuth: !!req.headers["authorization"],
+  caller: getCallerId(req),
+});
 
   Project.getOne(ownerId, req.params.project)
     .then(async (project) => {
@@ -1160,10 +1229,27 @@ router.post("/:user/:project/process", checkSharePermission, requireEditPermissi
           if (charged !== project.chargedAdvancedTools) {
             project.chargedAdvancedTools = charged;
             project.pendingAdvancedOps = 0;
-            await Project.update(ownerId, req.params.project, project);
+
+            const updated = await Project.updateIfVersion(
+              ownerId,
+              req.params.project,
+              project,
+              req.expectedVersion
+          );
+
+          if (!updated) {
+              const fresh = await Project.getOne(ownerId, req.params.project);
+              return res.status(409).jsonp({
+                message: "Project version conflict",
+                serverVersion: fresh?.version ?? null,
+              });
+            }
+          res.set("X-Project-Version", String(updated.version));
+
           }
 
           await startProcessing();
+          
         } catch (e) {
           console.error("Error starting processing (no advanced tools):", e);
           res.status(500).jsonp("Error processing project");
@@ -1172,10 +1258,9 @@ router.post("/:user/:project/process", checkSharePermission, requireEditPermissi
       }
 
       // Caso 2: com advanced tools -> verificar quota no users-ms
+      const callerId = getCallerId(req);
       axios
-        .get(users_ms + `${ownerId}/process/${adv_ops}`, {
-          httpsAgent: httpsAgent,
-        })
+        .get(users_ms + `${callerId}/process/${adv_ops}`, { httpsAgent: httpsAgent })
         .then(async (resp) => {
           const can_process = resp.data;
 
@@ -1190,7 +1275,22 @@ router.post("/:user/:project/process", checkSharePermission, requireEditPermissi
             project.chargedAdvancedTools = charged + newTools;
             project.pendingAdvancedOps = adv_ops;
 
-            await Project.update(ownerId, req.params.project, project);
+            const updated = await Project.updateIfVersion(
+              ownerId,
+              req.params.project,
+              project,
+              req.expectedVersion
+            );
+
+            if (!updated) {
+              const fresh = await Project.getOne(ownerId, req.params.project);
+              return res.status(409).jsonp({
+                message: "Project version conflict",
+                serverVersion: fresh?.version ?? null,
+              });
+            }
+
+            res.set("X-Project-Version", String(updated.version));
 
             await startProcessing();
           } catch (e) {
@@ -1203,8 +1303,8 @@ router.post("/:user/:project/process", checkSharePermission, requireEditPermissi
             message: err.message,
             status: err.response?.status,
             data: err.response?.data,
-            url: users_ms + `${ownerId}/process/${adv_ops}`,
-            ownerId,
+            url: users_ms + `${callerId}/process/${adv_ops}`,
+            callerId,
             adv_ops,
           });
 
@@ -1221,61 +1321,95 @@ router.post("/:user/:project/process", checkSharePermission, requireEditPermissi
 });
 
 // Update a specific project
-router.put("/:user/:project", (req, res, next) => {
-  Project.getOne(req.params.user, req.params.project)
-    .then((project) => {
-      project.name = req.body.name || project.name;
-      Project.update(req.params.user, req.params.project, project)
-        .then((_) => res.sendStatus(204))
-        .catch((_) =>
-          res.status(503).jsonp(`Error updating project information`)
+router.put(
+  "/:user/:project",
+  checkSharePermission,
+  requireEditPermission,
+  requireProjectVersion,
+  (req, res) => {
+    Project.getOne(req.params.user, req.params.project)
+      .then(async (project) => {
+        project.name = req.body.name || project.name;
+
+        const updated = await Project.updateIfVersion(
+          req.params.user,
+          req.params.project,
+          project,
+          req.expectedVersion
         );
-    })
-    .catch((_) => res.status(501).jsonp(`Error acquiring user's project`));
-});
+
+        if (!updated) {
+          const fresh = await Project.getOne(req.params.user, req.params.project);
+          return res.status(409).jsonp({
+            message: "Project version conflict",
+            serverVersion: fresh?.version ?? null,
+          });
+        }
+
+        res.set("X-Project-Version", String(updated.version));
+        return res.sendStatus(204);
+      })
+      .catch(() => res.status(501).jsonp(`Error acquiring user's project`));
+  }
+);
 
 // Update a tool from a specific project
-router.put("/:user/:project/tool/:tool", checkSharePermission, requireEditPermission, (req, res, next) => {
-  // Get project and update required tool with new data, keeping it's original position and procedure
-  Project.getOne(req.params.user, req.params.project)
-    .then((project) => {
-      try {
-        const tool_pos = project["tools"].findIndex(
-          (i) => i._id == req.params.tool
-        );
-        const prev_tool = project["tools"][tool_pos];
- 
-        project["tools"][tool_pos] = {
-          position: prev_tool.position,
-          procedure: prev_tool.procedure,
-          params: req.body.params,
-          _id: prev_tool._id,
-        };
+router.put(
+  "/:user/:project/tool/:tool",
+  checkSharePermission,
+  requireEditPermission,
+  requireProjectVersion,
+  (req, res) => {
+    Project.getOne(req.params.user, req.params.project)
+      .then(async (project) => {
+        try {
+          const tool_pos = project.tools.findIndex((i) => i._id == req.params.tool);
+          const prev_tool = project.tools[tool_pos];
 
-        Project.update(req.params.user, req.params.project, project)
-          .then((_) => res.sendStatus(204))
-          .catch((_) =>
-            res.status(503).jsonp(`Error updating project information`)
+          project.tools[tool_pos] = {
+            position: prev_tool.position,
+            procedure: prev_tool.procedure,
+            params: req.body.params,
+            _id: prev_tool._id,
+          };
+
+          const updated = await Project.updateIfVersion(
+            req.params.user,
+            req.params.project,
+            project,
+            req.expectedVersion
           );
-      } catch (_) {
-        res
-          .status(599)
-          .jsonp(`Error updating tool. Make sure such tool exists`);
-      }
-    })
-    .catch((_) => res.status(501).jsonp(`Error acquiring user's project`));
-});
+
+          if (!updated) {
+            const fresh = await Project.getOne(req.params.user, req.params.project);
+            return res.status(409).jsonp({
+              message: "Project version conflict",
+              serverVersion: fresh?.version ?? null,
+            });
+          }
+
+          res.set("X-Project-Version", String(updated.version));
+          return res.sendStatus(204);
+        } catch (_) {
+          return res.status(599).jsonp(`Error updating tool. Make sure such tool exists`);
+        }
+      })
+      .catch(() => res.status(501).jsonp(`Error acquiring user's project`));
+  }
+);
 
 // Delete a project
-router.delete("/:user/:project", async (req, res, next) => {
-  try {
-    await deleteProjectAndResources(req.params.user, req.params.project);
+router.delete( "/:user/:project", checkSharePermission, requireEditPermission, requireProjectVersion, async (req, res) => {
+
+    const ok = await Project.deleteIfVersion(req.params.user, req.params.project, req.expectedVersion);
+    if (!ok) {
+      const fresh = await Project.getOne(req.params.user, req.params.project);
+      return res.status(409).jsonp({ message: "Project version conflict", serverVersion: fresh?.version ?? null });
+    }
     return res.sendStatus(204);
-  } catch (err) {
-    console.error("Error deleting user's project:", err);
-    return res.status(504).jsonp(`Error deleting user's project`);
   }
-});
+);
+
 
 // Delete ALL projects from a user (used when deleting an account)
 router.delete("/:user", async (req, res, next) => {
@@ -1297,7 +1431,7 @@ router.delete("/:user", async (req, res, next) => {
 
 
 // Delete an image from a project
-router.delete("/:user/:project/img/:img", checkSharePermission, requireEditPermission, (req, res, next) => {
+router.delete("/:user/:project/img/:img", checkSharePermission, requireEditPermission, requireProjectVersion, (req, res, next) => {
   // Get project and delete specified image
   Project.getOne(req.params.user, req.params.project)
     .then(async (project) => {
@@ -1352,11 +1486,24 @@ router.delete("/:user/:project/img/:img", checkSharePermission, requireEditPermi
           );
         }
 
-        Project.update(req.params.user, req.params.project, project)
-          .then((_) => res.sendStatus(204))
-          .catch((_) =>
-            res.status(503).jsonp(`Error updating project information`)
-          );
+        const updated = await Project.updateIfVersion(
+          req.params.user,
+          req.params.project,
+          project,
+          req.expectedVersion
+        );
+
+        if (!updated) {
+          const fresh = await Project.getOne(req.params.user, req.params.project);
+          return res.status(409).jsonp({
+            message: "Project version conflict",
+            serverVersion: fresh?.version ?? null,
+          });
+        }
+
+        res.set("X-Project-Version", String(updated.version));
+        return res.sendStatus(204);
+
       } catch (_) {
         res.status(400).jsonp(`Error deleting image information.`);
       }
@@ -1365,52 +1512,83 @@ router.delete("/:user/:project/img/:img", checkSharePermission, requireEditPermi
 });
 
 // Delete a tool from a project
-router.delete("/:user/:project/tool/:tool", checkSharePermission, requireEditPermission, (req, res, next) => {
-  // Get project and delete specified tool, updating the position of all tools that follow
-  Project.getOne(req.params.user, req.params.project)
-    .then((project) => {
-      try {
-        const tool = project["tools"].filter(
-          (i) => i._id == req.params.tool
-        )[0];
+router.delete(
+  "/:user/:project/tool/:tool",
+  checkSharePermission,
+  requireEditPermission,
+  requireProjectVersion,
+  (req, res) => {
+    Project.getOne(req.params.user, req.params.project)
+      .then(async (project) => {
+        try {
+          const tool = project.tools.find((i) => i._id == req.params.tool);
+          project.tools.remove(tool);
 
-        project["tools"].remove(tool);
+          for (let i = 0; i < project.tools.length; i++) {
+            if (project.tools[i].position > tool.position) project.tools[i].position--;
+          }
 
-        for (let i = 0; i < project["tools"].length; i++) {
-          if (project["tools"][i].position > tool.position)
-            project["tools"][i].position--;
-        }
-
-        Project.update(req.params.user, req.params.project, project)
-          .then((_) => res.sendStatus(204))
-          .catch((_) =>
-            res.status(503).jsonp(`Error updating project information`)
+          const updated = await Project.updateIfVersion(
+            req.params.user,
+            req.params.project,
+            project,
+            req.expectedVersion
           );
-      } catch (_) {
-        res.status(400).jsonp(`Error deleting tool's information`);
-      }
-    })
-    .catch((_) => res.status(501).jsonp(`Error acquiring user's project`));
-});
+
+          if (!updated) {
+            const fresh = await Project.getOne(req.params.user, req.params.project);
+            return res.status(409).jsonp({
+              message: "Project version conflict",
+              serverVersion: fresh?.version ?? null,
+            });
+          }
+
+          res.set("X-Project-Version", String(updated.version));
+          return res.sendStatus(204);
+        } catch (_) {
+          return res.status(400).jsonp(`Error deleting tool's information`);
+        }
+      })
+      .catch(() => res.status(501).jsonp(`Error acquiring user's project`));
+  }
+);
 
 // Cancelar processamento de um projeto 
-router.delete("/:user/:project/process", async (req, res, next) => {
+router.delete("/:user/:project/process", checkSharePermission, requireEditPermission, requireProjectVersion, async (req, res) => {
   try {
     // 1) tentar devolver operações ao utilizador (apenas as pendentes desta execução)
     try {
       const project = await Project.getOne(req.params.user, req.params.project);
       const adv_ops = project.pendingAdvancedOps || 0;
 
+      const callerId = getCallerId(req);
+
       if (adv_ops > 0) {
         await axios.post(
-          users_ms + `${req.params.user}/process/refund/${adv_ops}`,
+          users_ms + `${callerId}/process/refund/${adv_ops}`,
           {},
           { httpsAgent: httpsAgent },
         );
 
         // reset do pendingAdvancedOps depois do refund
         project.pendingAdvancedOps = 0;
-        await Project.update(req.params.user, req.params.project, project);
+        const updated = await Project.updateIfVersion(
+          req.params.user,
+          req.params.project,
+          project,
+          req.expectedVersion
+        );
+
+        if (!updated) {
+          const fresh = await Project.getOne(req.params.user, req.params.project);
+          return res.status(409).jsonp({
+            message: "Project version conflict",
+            serverVersion: fresh?.version ?? null,
+          });
+        }
+
+        res.set("X-Project-Version", String(updated.version));
+
       }
     } catch (err) {
       console.error("Error refunding operations on cancel:", err);
@@ -1439,7 +1617,7 @@ router.delete("/:user/:project/process", async (req, res, next) => {
       }
     }
 
-    return res.sendStatus(200);
+    return res.sendStatus(204);
   } catch (err) {
     console.error("Error cancelling project processing:", err);
     return res.status(500).jsonp("Error cancelling project processing");

@@ -21,18 +21,22 @@ export function AppliedToolsList() {
   const searchParams = useSearchParams();
   const ownerParam = searchParams.get("owner") ?? session.user._id; 
   const qc = useQueryClient();
+  const shareId = searchParams.get("share") ?? undefined;
+
   const reorder = useReorderProjectTools(
     session.user._id,
     project._id,
     session.token,
     ownerParam,
+    shareId,
   );
+
   const deleteTool = useDeleteProjectTool(
     session.user._id,
     project._id,
     session.token,
     ownerParam,
-  
+    shareId,
   );
 
   const clearTools = useClearProjectTools(
@@ -40,9 +44,16 @@ export function AppliedToolsList() {
     project._id,
     session.token,
     ownerParam,
+    shareId,
   );
 
-  const preview = usePreviewProjectResult();  
+  const preview = usePreviewProjectResult(
+    session.user._id,
+    project._id,
+    session.token,
+    ownerParam,
+    shareId,
+  );
 
   const { toast } = useToast();
 
@@ -73,7 +84,7 @@ export function AppliedToolsList() {
 
     // update backend positions
     reorder.mutate(
-      { tools: withPositions },
+      { tools: withPositions, projectVersion: project.version },
       {
         onError: (error) => {
           console.error("Erro ao reordenar:", error);
@@ -91,15 +102,16 @@ export function AppliedToolsList() {
   function handleRemove(id: string) {
     deleteTool.mutate(
       {
-        uid: session.user._id,
-        pid: project._id,
         toolId: id,
-        token: session.token,
-        ownerId: ownerParam,
+        projectVersion: project.version,
       },
       {
         onSuccess: () => {
           setTools(tools.filter((t) => t._id !== id));
+        },
+        onError: (error) => {
+          const { title, description } = getErrorMessage("project-update", error);
+          toast({ title, description, variant: "destructive" });
         },
       }
     );
@@ -118,11 +130,8 @@ function handleUndo() {
 
   deleteTool.mutate(
     {
-      uid: session.user._id,
-      pid: project._id,
       toolId: lastTool._id,
-      token: session.token,
-      ownerId: ownerParam,
+      projectVersion: project.version,
     },
     {
       onSuccess: () => {
@@ -132,11 +141,8 @@ function handleUndo() {
         // Só pedir preview se ainda houver tools
         if (imageId && updated.length > 0) {
           preview.mutate({
-            uid: session.user._id,
-            pid: project._id,
             imageId,
-            token: session.token,
-            ownerId: ownerParam,
+            projectVersion: project.version,
           });
         }
 
@@ -147,6 +153,7 @@ function handleUndo() {
             project._id,
             session.token,
             ownerParam,
+            shareId
           ],
         });
       },
@@ -166,7 +173,7 @@ function handleReset() {
   const ids = tools.map((t) => t._id);
 
   clearTools.mutate(
-    { toolIds: ids },
+    { toolIds: ids, projectVersion: project.version },
     {
       onSuccess: () => {
         setTools([]);
@@ -180,6 +187,7 @@ function handleReset() {
             project._id,
             session.token,
             ownerParam,
+            shareId
           ],
         });
 

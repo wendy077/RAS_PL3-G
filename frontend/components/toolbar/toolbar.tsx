@@ -44,12 +44,14 @@ export function Toolbar() {
 
   const [open, setOpen] = useState<boolean>(false);
   const ownerParam = searchParams.get("owner") ?? session.user._id;
+  const shareId = searchParams.get("share") ?? undefined;
 
   const clearTools = useClearProjectTools(
     session.user._id,
     project._id,
     session.token,
     ownerParam,
+    shareId,
   );
 
   return (
@@ -96,6 +98,7 @@ export function Toolbar() {
               onClick={() => {
                 clearTools.mutate({
                   toolIds: project.tools.map((t) => t._id),
+                  projectVersion: project.version,
                 });
                 setOpen(false);
               }}

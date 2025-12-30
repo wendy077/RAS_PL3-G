@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "../ui/dropdown-menu";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useCurrentImage,
   usePreview,
@@ -27,6 +27,7 @@ import { toast } from "@/hooks/use-toast";
 import { useGetSocket } from "@/lib/queries/projects";
 import { Tooltip, TooltipTrigger, TooltipContent } from "../ui/tooltip";
 import { getErrorMessage } from "@/lib/error-messages";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface ToolbarButtonProps {
   open?: boolean;
@@ -61,163 +62,156 @@ export function ToolbarButton({
   const preview = usePreview();
   const { setHasUnsavedChanges } = useUnsavedChanges();
 
+  const socket = useGetSocket(session.token);
+  const searchParams = useSearchParams();
+  const ownerParam = searchParams.get("owner") ?? session.user._id;
+  const shareParam = searchParams.get("share") ?? undefined;
+
+  const qc = useQueryClient();
+
+  // memo para não recriar array a cada render (ajuda também)
+  const projectKey = useMemo(
+    () => ["project", session.user._id, project._id, session.token, ownerParam, shareParam],
+    [session.user._id, project._id, session.token, ownerParam, shareParam],
+  );
+
+  const handleProjectConflict = (error: any) => {
+    const status = error?.response?.status;
+
+    if (status === 409) {
+      toast({
+        title: "Conflito de edição",
+        description:
+          "O projeto foi alterado por outro utilizador. Atualizámos para a versão mais recente.",
+        variant: "destructive",
+      });
+
+      qc.invalidateQueries({ queryKey: projectKey, refetchType: "all" });
+      return true;
+    }
+
+    return false;
+  };
+
   const variant =
     project.tools.find((t) => t.procedure === tool.procedure) !== undefined
       ? "default"
       : "outline";
-  const socket = useGetSocket(session.token);
-  const searchParams = useSearchParams();
-  const ownerParam = searchParams.get("owner") ?? session.user._id;
 
   const currentImage = useCurrentImage();
+
   const addTool = useAddProjectTool(
     session.user._id,
     project._id,
     session.token,
     ownerParam,
+    shareParam,
   );
+
   const updateTool = useUpdateProjectTool(
     session.user._id,
     project._id,
     session.token,
     ownerParam,
+    shareParam,
   );
+
   const deleteTool = useDeleteProjectTool(
     session.user._id,
     project._id,
     session.token,
     ownerParam,
+    shareParam,
   );
-  const previewEdits = usePreviewProjectResult();
 
-  const [prevTool, setPrevTool] = useState<ProjectToolResponse | undefined>(
-    undefined,
+  const previewEdits = usePreviewProjectResult(
+    session.user._id,
+    project._id,
+    session.token,
+    ownerParam,
+    shareParam,
   );
-  const [waiting, setWaiting] = useState<boolean>(false);
-  const [timedout, setTimedout] = useState<boolean>(false);
+
+  const [prevTool, setPrevTool] = useState<ProjectToolResponse | undefined>(undefined);
+  const [waiting, setWaiting] = useState(false);
+  const [timedout, setTimedout] = useState(false);
 
   function handleDeleteTool() {
-    if (prevTool) {
-      deleteTool.mutate(
-        {
-          uid: session.user._id,
-          pid: project._id,
-          toolId: prevTool._id,
-          token: session.token,
-          ownerId: ownerParam,         
-        },
-        {
-          onError: (error) => {
-            const { title, description } = getErrorMessage("project-update", error);
-            toast({
-              title,
-              description,
-              variant: "destructive",
-            });
-          },
-        },
-      );
-    }
-  }
+    if (!prevTool) return;
 
-  function handlePreview() {
-    previewEdits.mutate(
+    deleteTool.mutate(
+      { toolId: prevTool._id, projectVersion: project.version },
       {
-        uid: session.user._id,
-        pid: project._id,
-        imageId: currentImage?._id ?? "",
-        token: session.token,
-        ownerId: ownerParam,
-      },
-      {
-        onSuccess: () => {
-          console.log("Preview started for", tool.procedure);
-          setWaiting(true);
-          preview.setWaiting(tool.procedure);
-          // o projeto passou a ter alterações não aplicadas
-          setHasUnsavedChanges(true);
-          setTimeout(
-            () => setTimedout(true),
-            10000 * (project.tools.length + 1),
-          );
-        },
         onError: (error) => {
-          const { title, description } = getErrorMessage("project-process", error);
-          toast({
-            title,
-            description,
-            variant: "destructive",
-          });
+          if (handleProjectConflict(error)) return;
+          const { title, description } = getErrorMessage("project-update", error);
+          toast({ title, description, variant: "destructive" });
         },
       },
     );
   }
 
-  function handleAddTool(preview?: boolean) {
+  function handlePreview() {
+    previewEdits.mutate(
+      { imageId: currentImage?._id ?? "", projectVersion: project.version },
+      {
+        onSuccess: () => {
+          setWaiting(true);
+          preview.setWaiting(tool.procedure);
+          setHasUnsavedChanges(true);
+
+          setTimeout(() => setTimedout(true), 10000 * (project.tools.length + 1));
+        },
+        onError: (error) => {
+          if (handleProjectConflict(error)) return;
+          const { title, description } = getErrorMessage("project-process", error);
+          toast({ title, description, variant: "destructive" });
+        },
+      },
+    );
+  }
+
+  function handleAddTool(runPreview?: boolean) {
     const afterSuccess = () => {
-      // tools diferentes do que estava aplicado
       setHasUnsavedChanges(true);
-      if (preview) handlePreview();
+      if (runPreview) handlePreview();
     };
 
     if (prevTool) {
       updateTool.mutate(
-        {
-          uid: session.user._id,
-          pid: project._id,
-          toolId: prevTool._id,
-          toolParams: tool.params,
-          token: session.token,
-          ownerId: ownerParam,   
-        },
+        { toolId: prevTool._id, toolParams: tool.params, projectVersion: project.version },
         {
           onSuccess: afterSuccess,
           onError: (error) => {
+            if (handleProjectConflict(error)) return;
             const { title, description } = getErrorMessage("project-update", error);
-            toast({
-              title,
-              description,
-              variant: "destructive",
-            });
+            toast({ title, description, variant: "destructive" });
           },
         },
       );
     } else {
-          addTool.mutate(
-            {
-              tool: {
-                ...tool,
-                position: project.tools.length,
-              },
-            },
-            {
-              onSuccess: afterSuccess,
-              onError: (error) => {
-                const { title, description } = getErrorMessage("project-update", error);
-                toast({
-                  title,
-                  description,
-                  variant: "destructive",
-                });
-              },
-            },
-          );
-        }
+      addTool.mutate(
+        { tool: { ...tool, position: project.tools.length }, projectVersion: project.version },
+        {
+          onSuccess: afterSuccess,
+          onError: (error) => {
+            if (handleProjectConflict(error)) return;
+            const { title, description } = getErrorMessage("project-update", error);
+            toast({ title, description, variant: "destructive" });
+          },
+        },
+      );
+    }
+
     setOpen(false);
   }
 
   function handleClick() {
-    if (isPremium) {
-      if (session.user.type === "anonymous") {
-        router.push("/login");
-        return;
-      }
-      if (noParams) {
-        if (prevTool) handleDeleteTool();
-        else handleAddTool(true);
-      }
+    if (isPremium && session.user.type === "anonymous") {
+      router.push("/login");
       return;
     }
+
     if (noParams) {
       if (prevTool) handleDeleteTool();
       else handleAddTool(true);
@@ -225,54 +219,49 @@ export function ToolbarButton({
   }
 
   useEffect(() => {
-    if (timedout) {
-      if (waiting) {
-        setWaiting(false);
-        preview.setWaiting("");
-        toast({
-          title: "Ups! An error occurred.",
-          description: "The preview took too long to load.",
-          variant: "destructive",
-        });
-      }
-      setTimedout(false);
-    }
-  }, [timedout, waiting, preview]);
+    if (!timedout) return;
 
-  useEffect(() => {
-    let active = true;
-
-    if (active && socket.data) {
-      socket.data.on("preview-ready", () => {
-        if (active) {
-          setWaiting(false);
-          preview.setWaiting("");
-        }
+    if (waiting) {
+      setWaiting(false);
+      preview.setWaiting("");
+      toast({
+        title: "Ups! An error occurred.",
+        description: "The preview took too long to load.",
+        variant: "destructive",
       });
     }
 
-    return () => {
-      active = false;
-      if (socket.data) {
-        socket.data.off("preview-ready");
-      }
-    };
-  }, [socket.data]);
+    setTimedout(false);
+  }, [timedout, waiting, preview]);
 
   useEffect(() => {
-    const prevTool = project.tools.find((t) => t.procedure === tool.procedure);
-    setPrevTool(prevTool);
+    const s = socket.data;
+    if (!s) return;
+
+    const onPreviewReady = () => {
+      setWaiting(false);
+      preview.setWaiting("");
+    };
+
+    s.on("preview-ready", onPreviewReady);
+
+    return () => {
+      s.off("preview-ready", onPreviewReady);
+    };
+  }, [socket.data, preview]);
+
+  useEffect(() => {
+    setPrevTool(project.tools.find((t) => t.procedure === tool.procedure));
   }, [project.tools, tool.procedure]);
 
   const TButton = () => (
     <Tooltip>
       <Button
         variant={variant}
-        className={`size-8 relative ${isPremium && variant === "default" && "bg-indigo-500 hover:bg-indigo-400"}`}
-        disabled={
-          disabled ||
-          (preview.waiting !== tool.procedure && preview.waiting !== "")
-        }
+        className={`size-8 relative ${
+          isPremium && variant === "default" ? "bg-indigo-500 hover:bg-indigo-400" : ""
+        }`}
+        disabled={disabled || (preview.waiting !== tool.procedure && preview.waiting !== "")}
         onClick={handleClick}
       >
         {waiting ? (
@@ -283,9 +272,7 @@ export function ToolbarButton({
               <TooltipTrigger asChild>
                 <div
                   className={
-                    isPremium && variant === "default"
-                      ? "text-white"
-                      : "text-indigo-500"
+                    isPremium && variant === "default" ? "text-white" : "text-indigo-500"
                   }
                 >
                   <Icon className="h-3.5 w-3.5" />
@@ -313,10 +300,7 @@ export function ToolbarButton({
       {!((isPremium && session.user.type === "anonymous") || noParams) ? (
         <DropdownMenuTrigger
           asChild
-          disabled={
-            disabled ||
-            (preview.waiting !== tool.procedure && preview.waiting !== "")
-          }
+          disabled={disabled || (preview.waiting !== tool.procedure && preview.waiting !== "")}
         >
           <div>
             <TButton />
@@ -327,6 +311,7 @@ export function ToolbarButton({
           <TButton />
         </div>
       )}
+
       <DropdownMenuContent
         className="w-[--radix-dropdown-menu-trigger-width] min-w-64 rounded-lg"
         side="right"
@@ -337,9 +322,10 @@ export function ToolbarButton({
         <DropdownMenuSeparator />
         <div className="p-1">{children}</div>
         <DropdownMenuSeparator />
+
         <div className="flex w-full gap-1 items-center">
           <Button
-            variant={"outline"}
+            variant="outline"
             className="h-6 text-xs"
             onClick={() => {
               handleDeleteTool();
@@ -349,6 +335,7 @@ export function ToolbarButton({
           >
             Default
           </Button>
+
           <Button
             variant="outline"
             onClick={() => handleAddTool(true)}
@@ -357,8 +344,9 @@ export function ToolbarButton({
           >
             Preview
           </Button>
+
           <Button
-            onClick={() => handleAddTool()}
+            onClick={() => handleAddTool(false)}
             disabled={isDefault}
             className="h-6 text-xs w-full"
           >

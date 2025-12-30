@@ -25,6 +25,20 @@ import { createBlobUrlFromFile, downloadBlob } from "../utils";
 import { validateSession, SessionData } from "../session";
 import type { ProjectTool, ProjectToolResponse } from "../projects";
 
+function bumpProjectVersion(
+  qc: ReturnType<typeof useQueryClient>,
+  queryKey: unknown[],
+  newVersionHeader?: string,
+) {
+  const v = Number(newVersionHeader);
+  if (!Number.isFinite(v)) return;
+
+  qc.setQueryData(queryKey, (old: any) => {
+    if (!old) return old;
+    return { ...old, version: v };
+  });
+}
+
 export const useAddProject = (uid: string, token: string) => {
   const qc = useQueryClient();
   return useMutation({
@@ -38,47 +52,66 @@ export const useAddProject = (uid: string, token: string) => {
   });
 };
 
-export const useDeleteProject = (uid: string, pid: string, token: string) => {
+export const useDeleteProject = (
+  uid: string,
+  pid: string,
+  token: string,
+  ownerId?: string,
+  shareId?: string,
+) => {
   const qc = useQueryClient();
+  const projectKey = ["project", uid, pid, token, ownerId, shareId];
+
   return useMutation({
-    mutationFn: deleteProject,
+    mutationFn: (args: { projectVersion: number }) =>
+      deleteProject({
+        uid,
+        pid,
+        token,
+        ownerId,
+        shareId,
+        projectVersion: args.projectVersion,
+      }),
+
     onSuccess: () => {
-      qc.invalidateQueries({
-        refetchType: "all",
-        queryKey: ["projects", uid, token],
-      });
-      qc.invalidateQueries({
-        refetchType: "all",
-        queryKey: ["project", uid, pid, token],
-      });
-      qc.invalidateQueries({
-        refetchType: "all",
-        queryKey: ["projectImages", uid, pid],
-      });
-      qc.invalidateQueries({
-        refetchType: "all",
-        queryKey: ["projectResults", uid, pid, token],
-      });
+      qc.invalidateQueries({ queryKey: ["projects", uid, token], refetchType: "all" });
+      qc.invalidateQueries({ queryKey: projectKey, refetchType: "all" });
+      qc.invalidateQueries({ queryKey: ["projectImages", uid, pid, token, ownerId, shareId], refetchType: "all" });
+      qc.invalidateQueries({ queryKey: ["projectResults", uid, pid, token, ownerId, shareId], refetchType: "all" });
     },
   });
 };
 
-export const useUpdateProject = (uid: string, pid: string, token: string) => {
+export const useUpdateProject = (
+  uid: string,
+  pid: string,
+  token: string,
+  ownerId?: string,
+  shareId?: string,
+) => {
   const qc = useQueryClient();
+  const projectKey = ["project", uid, pid, token, ownerId, shareId];
+
   return useMutation({
-    mutationFn: updateProject,
-    onSuccess: () => {
-      qc.invalidateQueries({
-        refetchType: "all",
-        queryKey: ["projects", uid, token],
-      });
-      qc.invalidateQueries({
-        refetchType: "all",
-        queryKey: ["project", uid, pid, token],
-      });
+    mutationFn: (args: { name: string; projectVersion: number }) =>
+      updateProject({
+        uid,
+        pid,
+        token,
+        ownerId,
+        shareId,
+        name: args.name,
+        projectVersion: args.projectVersion,
+      }),
+
+    onSuccess: (newVersionHeader) => {
+      bumpProjectVersion(qc, projectKey, newVersionHeader);
+      qc.invalidateQueries({ queryKey: ["projects", uid, token], refetchType: "all" });
+      qc.invalidateQueries({ queryKey: projectKey, refetchType: "all" });
     },
   });
 };
+
 
 export const useDownloadProjectPdf = () => {
   return useMutation({
@@ -90,23 +123,26 @@ export const useDownloadProjectPdf = () => {
   });
 };
 
-export const useAddProjectImages = (
-  uid: string,
-  pid: string,
-  token: string,
-) => {
+export const useAddProjectImages = (uid: string, pid: string, token: string, ownerId?: string, shareId?: string) => {
   const qc = useQueryClient();
+  const projectKey = ["project", uid, pid, token, ownerId, shareId];
+
   return useMutation({
-    mutationFn: addProjectImages,
-    onSuccess: () => {
-      qc.invalidateQueries({
-        refetchType: "all",
-        queryKey: ["project", uid, pid, token],
-      });
-      qc.invalidateQueries({
-        refetchType: "all",
-        queryKey: ["projectImages", uid, pid, token],
-      });
+    mutationFn: (args: { images: File[]; projectVersion: number }) =>
+      addProjectImages({
+        uid,
+        pid,
+        token,
+        images: args.images,
+        ownerId,
+        shareId,
+        projectVersion: args.projectVersion,
+      }),
+
+    onSuccess: (newVersionHeader) => {
+      bumpProjectVersion(qc, projectKey, newVersionHeader);
+      qc.invalidateQueries({ queryKey: projectKey, refetchType: "all" });
+      qc.invalidateQueries({ queryKey: ["projectImages", uid, pid, token, ownerId, shareId], refetchType: "all" });
     },
   });
 };
@@ -115,18 +151,30 @@ export const useDeleteProjectImages = (
   uid: string,
   pid: string,
   token: string,
+  ownerId?: string,
+  shareId?: string,
 ) => {
   const qc = useQueryClient();
+  const projectKey = ["project", uid, pid, token, ownerId, shareId];
+
   return useMutation({
-    mutationFn: deleteProjectImages,
-    onSuccess: () => {
+    mutationFn: (args: { imageIds: string[]; projectVersion: number }) =>
+      deleteProjectImages({
+        uid,
+        pid,
+        token,
+        imageIds: args.imageIds,
+        ownerId,
+        shareId,
+        projectVersion: args.projectVersion,
+      }),
+
+    onSuccess: (newVersionHeader) => {
+      bumpProjectVersion(qc, projectKey, newVersionHeader);
+      qc.invalidateQueries({ queryKey: projectKey, refetchType: "all" });
       qc.invalidateQueries({
+        queryKey: ["projectImages", uid, pid, token, ownerId, shareId],
         refetchType: "all",
-        queryKey: ["project", uid, pid, token],
-      });
-      qc.invalidateQueries({
-        refetchType: "all",
-        queryKey: ["projectImages", uid, pid, token],
       });
     },
   });
@@ -167,16 +215,41 @@ export const useDownloadProjectResults = () => {
   });
 };
 
-export const useProcessProject = () => {
+export const useProcessProject = (
+  uid: string,
+  pid: string,
+  token: string,
+  ownerId?: string,
+  shareId?: string,
+) => {
   const qc = useQueryClient();
+  const projectKey = ["project", uid, pid, token, ownerId, shareId];
+  const resultsKey = ["projectResults", uid, pid, token, ownerId, shareId];
 
   return useMutation({
-    mutationFn: processProject,
-    onSuccess: async () => {
+    mutationFn: (args: { projectVersion: number }) =>
+      processProject({
+        uid: shareId ? (ownerId ?? uid) : uid,  
+        pid,
+        token,
+        ownerId,
+        shareId,
+        projectVersion: args.projectVersion,
+        runnerUserId: uid,
+      }),
+
+    onSuccess: async (newVersionHeader) => {
+      // 1) atualizar a versão local (se vier header)
+      bumpProjectVersion(qc, projectKey, newVersionHeader);
+
+      // 2) invalidar queries que certamente mudam
+      qc.invalidateQueries({ queryKey: projectKey, refetchType: "all" });
+      qc.invalidateQueries({ queryKey: resultsKey, refetchType: "all" });
+
+      // 3) atualizar sessão / remaining_operations 
       const raw = localStorage.getItem("session");
 
       if (!raw) {
-        // Se não houver sessão, pelo menos limpa-se a query "session"
         qc.invalidateQueries({ refetchType: "all", queryKey: ["session"] });
         return;
       }
@@ -184,7 +257,6 @@ export const useProcessProject = () => {
       try {
         const current = JSON.parse(raw) as SessionData;
 
-        // Chama o backend para obter user + remaining_operations atualizados
         const updated = await validateSession({
           userId: current.user._id,
           token: current.token,
@@ -195,14 +267,10 @@ export const useProcessProject = () => {
           token: updated.token,
         };
 
-        // Guarda a sessão nova no localStorage
         localStorage.setItem("session", JSON.stringify(newSession));
-
-        // Atualiza diretamente a cache da query "session"
         qc.setQueryData(["session"], newSession);
 
         window.dispatchEvent(new Event("session-updated"));
-
       } catch (err) {
         console.error("Error updating session after processing project:", err);
         qc.invalidateQueries({ refetchType: "all", queryKey: ["session"] });
@@ -211,38 +279,26 @@ export const useProcessProject = () => {
   });
 };
 
+
 export const useAddProjectTool = (uid: string, pid: string, token: string, ownerId?: string,  shareId?: string,) => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { tool: ProjectTool }) =>
-          addProjectTool({
-            uid,
-            pid,
-            token,
-            ownerId,
-            shareId,
-            tool: args.tool,
-          }),
-    onSuccess: () => {
-      qc.invalidateQueries({
-        refetchType: "all",
-        queryKey: ["project", uid, pid, token, ownerId],
-      });
-      qc.invalidateQueries({
-        refetchType: "all",
-        queryKey: ["projectResults", uid, pid, token, ownerId],
-      });
+    mutationFn: (args: { tool: ProjectTool; projectVersion: number }) =>
+      addProjectTool({
+        uid, pid, token, ownerId, shareId,
+        tool: args.tool,
+        projectVersion: args.projectVersion,
+      }),
+
+    onSuccess: (newVersionHeader) => {
+      bumpProjectVersion(qc, ["project", uid, pid, token, ownerId, shareId], newVersionHeader);
+      qc.invalidateQueries({ refetchType: "all", queryKey: ["project", uid, pid, token, ownerId, shareId] });
+      qc.invalidateQueries({ refetchType: "all", queryKey: ["projectResults", uid, pid, token, ownerId, shareId] });
     },
   });
 };
 
-export const usePreviewProjectResult = () => {
-  return useMutation({
-    mutationFn: previewProjectImage,
-  });
-};
-
-export const useUpdateProjectTool = (
+export const usePreviewProjectResult = (
   uid: string,
   pid: string,
   token: string,
@@ -250,17 +306,53 @@ export const useUpdateProjectTool = (
   shareId?: string,
 ) => {
   const qc = useQueryClient();
+  const projectKey = ["project", uid, pid, token, ownerId, shareId];
+
   return useMutation({
-    mutationFn: updateProjectTool,
-    onSuccess: () => {
+    mutationFn: (args: { imageId: string; projectVersion: number }) =>
+      previewProjectImage({   
+        uid: shareId ? (ownerId ?? uid) : uid,  
+        pid,
+        imageId: args.imageId,
+        token,
+        ownerId,
+        shareId,
+        projectVersion: args.projectVersion,
+        runnerUserId: uid,
+      }),
+    onSuccess: (newVersionHeader) => {
+      // se o backend devolver header aqui, atualiza localmente
+      bumpProjectVersion(qc, projectKey, newVersionHeader);
+      qc.invalidateQueries({ queryKey: projectKey, refetchType: "all" });
       qc.invalidateQueries({
-        refetchType: "all",
-        queryKey: ["project", uid, pid, token, ownerId, shareId],
-      });
-      qc.invalidateQueries({
-        refetchType: "all",
         queryKey: ["projectResults", uid, pid, token, ownerId, shareId],
+        refetchType: "all",
       });
+    },
+  });
+};
+
+export const useUpdateProjectTool = (uid: string, pid: string, token: string, ownerId: string, shareId?: string) => {
+  const qc = useQueryClient();
+  const projectKey = ["project", uid, pid, token, ownerId, shareId];
+
+  return useMutation({
+    mutationFn: (args: { toolId: string; toolParams: any; projectVersion: number }) =>
+      updateProjectTool({
+        uid,
+        pid,
+        toolId: args.toolId,
+        toolParams: args.toolParams,
+        token,
+        ownerId,
+        shareId,
+        projectVersion: args.projectVersion,
+      }),
+
+    onSuccess: (newVersionHeader) => {
+      bumpProjectVersion(qc, projectKey, newVersionHeader);
+      qc.invalidateQueries({ queryKey: projectKey, refetchType: "all" });
+      qc.invalidateQueries({ queryKey: ["projectResults", uid, pid, token, ownerId, shareId], refetchType: "all" });
     },
   });
 };
@@ -273,51 +365,87 @@ export const useDeleteProjectTool = (
   shareId?: string,
 ) => {
   const qc = useQueryClient();
+  const projectKey = ["project", uid, pid, token, ownerId, shareId];
+
   return useMutation({
-    mutationFn: deleteProjectTool,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["project", uid, pid, token, ownerId, shareId] });
+    mutationFn: (args: { toolId: string; projectVersion: number }) =>
+      deleteProjectTool({
+        uid,
+        pid,
+        toolId: args.toolId,
+        token,
+        ownerId: ownerId ?? uid,
+        shareId,
+        projectVersion: args.projectVersion,
+      }),
+
+    onSuccess: (newVersionHeader) => {
+      bumpProjectVersion(qc, projectKey, newVersionHeader);
+      qc.invalidateQueries({ queryKey: projectKey, refetchType: "all" });
       qc.invalidateQueries({
-        refetchType: "all",
         queryKey: ["projectResults", uid, pid, token, ownerId, shareId],
+        refetchType: "all",
       });
     },
   });
 };
 
-  export const useReorderProjectTools = (
-    uid: string,
-    pid: string,
-    token: string,
-    ownerId?: string,
-    shareId?: string,
-  ) => {
-    const qc = useQueryClient();
-    return useMutation({
-      mutationFn: (args: { tools: ProjectToolResponse[] }) =>
-        reorderProjectTools({
+export const useReorderProjectTools = (
+  uid: string,
+  pid: string,
+  token: string,
+  ownerId?: string,
+  shareId?: string,
+) => {
+  const qc = useQueryClient();
+  const projectKey = ["project", uid, pid, token, ownerId, shareId];
+
+  return useMutation({
+    mutationFn: (args: { tools: ProjectToolResponse[]; projectVersion: number }) =>
+      reorderProjectTools({
         uid,
         pid,
         tools: args.tools,
         token,
         ownerId,
         shareId,
+        projectVersion: args.projectVersion,
       }),
-      onSuccess: () => {
-        qc.invalidateQueries({ queryKey: ["project", uid, pid, token, ownerId, shareId] });
-        qc.invalidateQueries({
-          refetchType: "all",
-          queryKey: ["projectResults", uid, pid, token, ownerId, shareId],
-        });
-      },
-    });
-  };
+    onSuccess: (newVersionHeader) => {
+      bumpProjectVersion(qc, projectKey, newVersionHeader);
+      qc.invalidateQueries({ queryKey: projectKey, refetchType: "all" });
+      qc.invalidateQueries({
+        queryKey: ["projectResults", uid, pid, token, ownerId, shareId],
+        refetchType: "all",
+      });
+    },
+  });
+};
 
-  export const useCancelProjectProcess = () => {
-    return useMutation({
-      mutationFn: cancelProjectProcess,
-    });
-  };
+export const useCancelProjectProcess = (
+  uid: string,
+  pid: string,
+  token: string,
+  ownerId?: string,
+  shareId?: string,
+) => {
+  const qc = useQueryClient();
+  const projectKey = ["project", uid, pid, token, ownerId, shareId];
+
+  return useMutation({
+    mutationFn: (args: { projectVersion: number }) =>
+      cancelProjectProcess({ uid, pid, token, ownerId, shareId, projectVersion: args.projectVersion }),
+
+    onSuccess: (newVersionHeader) => {
+      bumpProjectVersion(qc, projectKey, newVersionHeader);
+      qc.invalidateQueries({ queryKey: projectKey, refetchType: "all" });
+      qc.invalidateQueries({
+        queryKey: ["projectResults", uid, pid, token, ownerId, shareId],
+        refetchType: "all",
+      });
+    },
+  });
+};
 
 // ================== SHARING / LINKS ==================
 
@@ -365,7 +493,7 @@ export const useClearProjectTools = (
   const qc = useQueryClient();
 
   return useMutation({
-    mutationFn: (params: { toolIds: string[] }) =>
+    mutationFn: (params: { toolIds: string[]; projectVersion: number }) =>
       clearProjectTools({
         uid,
         pid,
@@ -373,12 +501,11 @@ export const useClearProjectTools = (
         toolIds: params.toolIds,
         ownerId: ownerId ?? uid,
         shareId,
+        projectVersion: params.projectVersion,
       }),
-    onSuccess: () => {
-      // refetch do projeto para garantir que tools vêm vazias
-      qc.invalidateQueries({
-        queryKey: ["project", uid, pid],
-      });
+    onSuccess: (newVersionHeader) => {
+      bumpProjectVersion(qc, ["project", uid, pid, token, ownerId, shareId], newVersionHeader);
+      qc.invalidateQueries({ queryKey: ["project", uid, pid, token, ownerId, shareId], refetchType: "all" });
     },
   });
 };

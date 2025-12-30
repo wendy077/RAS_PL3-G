@@ -30,9 +30,23 @@ io.on("connection", (socket) => {
         });
     }
 
+    socket.on("join-project", (projectId) => {
+        if (typeof projectId === "string" && projectId.length > 0) {
+            socket.join(`project:${projectId}`);
+        }
+        });
+
+
+    socket.on("leave-project", (projectId) => {
+        if (typeof projectId === "string" && projectId.length > 0) {
+            socket.leave(`project:${projectId}`);
+        }
+        });
+        
     socket.on("disconnect", () => {
         console.log("A user disconnected");
     });
+
 });
 
 // id do user como room id
@@ -76,6 +90,15 @@ function process_msg() {
             io.to(user).emit("process-update", msg_id);
         }
 
+        //  project updated
+        else if (/project-updated/.test(msg_id) || msg_content.type === "project-updated") {
+            const projectId = msg_content.projectId;
+            const version = msg_content.version;
+
+            if (projectId) {
+                io.to(`project:${projectId}`).emit("project-updated", { projectId, version });
+            }
+        }
     })
 }
 

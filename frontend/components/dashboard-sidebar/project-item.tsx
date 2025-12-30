@@ -29,6 +29,10 @@ import { useToast } from "@/hooks/use-toast";
 import { useSession } from "@/providers/session-provider";
 import { Project } from "@/lib/projects";
 import { getErrorMessage } from "@/lib/error-messages";
+import { useQueryClient } from "@tanstack/react-query";
+import type { SingleProject } from "@/lib/projects";
+import { useSearchParams } from "next/navigation";
+
 
 export default function ProjectItem({ p }: { p: Project }) {
   const router = useRouter();
@@ -40,6 +44,17 @@ export default function ProjectItem({ p }: { p: Project }) {
   const [newName, setNewName] = useState<string>(p.name);
 
   const session = useSession();
+  const qc = useQueryClient();
+  const searchParams = useSearchParams();
+
+  const ownerId = searchParams.get("owner") ?? session.user._id;
+  const shareId = searchParams.get("share") ?? undefined;
+
+  const projectKey = ["project", session.user._id, p._id, session.token, ownerId, shareId];
+
+  const cached = qc.getQueryData<SingleProject>(projectKey);
+  const projectVersion = cached?.version; // versão REAL
+
   const deleteProject = useDeleteProject(
     session.user._id,
     p._id,
@@ -138,21 +153,23 @@ export default function ProjectItem({ p }: { p: Project }) {
           <DialogFooter>
             <Button
               onClick={() => {
+                if (!projectVersion) {
+                  toast({
+                    title: "Não foi possível obter a versão do projeto",
+                    description: "Abre o projeto primeiro (ou aguarda carregar) e tenta novamente.",
+                    variant: "destructive",
+                  });
+                  return;
+                }
                 if (option === "rename")
                   updateProject.mutate({
-                    uid: session.user._id,
-                    pid: p._id,
-                    token: session.token,
                     name: newName,
+                    projectVersion: p.version,
                   });
                 else {
                   router.push("/dashboard");
                   deleteProject.mutate(
-                    {
-                      uid: session.user._id,
-                      pid: p._id,
-                      token: session.token,
-                    },
+                    { projectVersion },
                     {
                       onSuccess: () => {
                         toast({

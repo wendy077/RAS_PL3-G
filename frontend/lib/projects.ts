@@ -15,6 +15,7 @@ export interface Project {
   _id: string;
   user_id: string;
   name: string;
+  version: number;
 }
 
 export interface SingleProject {
@@ -23,6 +24,8 @@ export interface SingleProject {
   name: string;
   tools: ProjectToolResponse[];
   imgs: ProjectImage[];
+  version: number;
+
 }
 export interface ProjectImage {
   _id: string;
@@ -140,6 +143,7 @@ export const fetchProjects = async (uid: string, token: string) => {
     _id: p._id,
     user_id: uid,
     name: p.name,
+    version: p.version, 
   })) as Project[];
 };
 
@@ -167,6 +171,7 @@ export const fetchProject = async (
     name: response.data.name,
     imgs: response.data.imgs,
     tools: response.data.tools,
+    version: response.data.version,
   } as SingleProject;
 };
 
@@ -183,87 +188,104 @@ export const addProject = async ({
 }) => {
   const response = await api.post<SingleProject>(
     `/projects/${uid}`,
-    {
-      name,
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    },
+    { name },
+    { headers: { Authorization: `Bearer ${token}` } },
   );
 
   if (response.status !== 201 || !response.data)
     throw new Error("Failed to create project");
 
-  if (images.length > 0) {
-    const project = response.data;
+  const project = response.data;
 
+  if (images.length > 0) {
     await addProjectImages({
       uid,
       pid: project._id,
       token,
       images,
+      projectVersion: project.version,
     });
-
-    return response.data;
   }
+
+  return project;
 };
 
 export const deleteProject = async ({
   uid,
   pid,
   token,
+  ownerId,
+  shareId,
+  projectVersion,
 }: {
   uid: string;
   pid: string;
   token: string;
+  ownerId?: string;
+  shareId?: string;
+  projectVersion: number;
 }) => {
-  const response = await api.delete(`/projects/${uid}/${pid}`, {
+  const query = buildQuery({ ownerId, shareId });
+
+  const response = await api.delete(`/projects/${uid}/${pid}${query}`, {
     headers: {
       Authorization: `Bearer ${token}`,
+      "X-Project-Version": String(projectVersion),
     },
   });
 
   if (response.status !== 204) throw new Error("Failed to delete project");
+
+  return response.headers?.["x-project-version"];
 };
+
 
 export const updateProject = async ({
   uid,
   pid,
   token,
+  ownerId,
+  shareId,
   name,
+  projectVersion,
 }: {
   uid: string;
   pid: string;
   token: string;
+  ownerId?: string;
+  shareId?: string;
   name: string;
+  projectVersion: number;
 }) => {
+  const query = buildQuery({ ownerId, shareId });
+
   const response = await api.put(
-    `/projects/${uid}/${pid}`,
+    `/projects/${uid}/${pid}${query}`,
     { name },
     {
       headers: {
         Authorization: `Bearer ${token}`,
+        "X-Project-Version": String(projectVersion),
       },
     },
   );
 
   if (response.status !== 204) throw new Error("Failed to update project");
+
+  return response.headers?.["x-project-version"];
 };
 
 export const getProjectImages = async (
   uid: string,
   pid: string,
   token: string,
+  ownerId?: string,
+  shareId?: string,
 ) => {
+  const query = buildQuery({ ownerId, shareId });
   const response = await api.get<ProjectImage[]>(
-    `/projects/${uid}/${pid}/imgs`,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    },
+    `/projects/${uid}/${pid}/imgs${query}`,
+    { headers: { Authorization: `Bearer ${token}` } },
   );
 
   if (response.status !== 200 || !response.data)
@@ -281,14 +303,13 @@ export const getProjectImage = async (
   pid: string,
   imageId: string,
   token: string,
+  ownerId?: string,
+  shareId?: string,
 ) => {
+  const query = buildQuery({ ownerId, shareId });
   const response = await api.get<ProjectImage>(
-    `/projects/${uid}/${pid}/img/${imageId}`,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    },
+    `/projects/${uid}/${pid}/img/${imageId}${query}`,
+    { headers: { Authorization: `Bearer ${token}` } },
   );
 
   if (response.status !== 200 || !response.data)
@@ -300,6 +321,7 @@ export const getProjectImage = async (
     url: response.data.url,
   } as ProjectImage;
 };
+
 
 export const downloadProjectImage = async ({
   imageUrl,
@@ -366,6 +388,7 @@ export const addProjectImages = async ({
   images,
   ownerId,
   shareId,
+  projectVersion,
 }: {
   uid: string;
   pid: string;
@@ -373,8 +396,11 @@ export const addProjectImages = async ({
   images: File[];
   ownerId?: string;
   shareId?: string;
+  projectVersion: number;
 }) => {
   const query = buildQuery({ ownerId, shareId });
+
+  let lastVersion: string | undefined;
 
   for (const image of images) {
     const formData = new FormData();
@@ -384,12 +410,19 @@ export const addProjectImages = async ({
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "multipart/form-data",
+        "X-Project-Version": String(projectVersion),
       },
     });
 
-    if (response.status !== 201)
+    if (response.status < 200 || response.status >= 300)
       throw new Error("Failed to upload image: " + image.name);
+
+    //  se backend devolver nova versão a cada upload
+    lastVersion = response.headers?.["x-project-version"];
+    if (lastVersion) projectVersion = Number(lastVersion);
   }
+    return lastVersion;
+
 };
 
 export const deleteProjectImages = async ({
@@ -399,6 +432,8 @@ export const deleteProjectImages = async ({
   imageIds,
   ownerId,
   shareId,
+  projectVersion,
+
 }: {
   uid: string;
   pid: string;
@@ -406,21 +441,32 @@ export const deleteProjectImages = async ({
   imageIds: string[];
   ownerId?: string;
   shareId?: string;
+  projectVersion: number;
 }) => {
   const query = buildQuery({ ownerId, shareId });
+
+    let lastVersion: string | undefined;
+
   for (const imageId of imageIds) {
     const response = await api.delete(
         `/projects/${uid}/${pid}/img/${imageId}${query}`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
+          "X-Project-Version": String(projectVersion),
         },
       },
     );
 
     if (response.status !== 204)
       throw new Error("Failed to delete image: " + imageId);
+
+    lastVersion = response.headers?.["x-project-version"];
+    if (lastVersion) projectVersion = Number(lastVersion);
   }
+
+    return lastVersion;
+
 };
 
 export const previewProjectImage = async ({
@@ -429,7 +475,9 @@ export const previewProjectImage = async ({
   imageId,
   token,
   ownerId,
-  shareId
+  shareId,
+  projectVersion,
+  runnerUserId,
 }: {
   uid: string;
   pid: string;
@@ -437,29 +485,30 @@ export const previewProjectImage = async ({
   token: string;
   ownerId: string;
   shareId?: string;
+  projectVersion: number;
+  runnerUserId: string;  
 }) => {
   const query = buildQuery({ ownerId, shareId });
   const response = await api.post(
     `/projects/${uid}/${pid}/preview/${imageId}${query}`,
-    {},
+    { runnerUserId },   // ✅ importante
     {
       headers: {
         Authorization: `Bearer ${token}`,
+        "X-Project-Version": String(projectVersion),
       },
     },
   );
 
-  if (response.status !== 201 || !response.data)
+  if (response.status !== 201)
     throw new Error("Failed to request preview");
+
+    return response.headers?.["x-project-version"];
+
 };
 
 export const addProjectTool = async ({
-  uid,
-  pid,
-  tool,
-  token,
-  ownerId,
-  shareId
+  uid, pid, tool, token, ownerId, shareId, projectVersion
 }: {
   uid: string;
   pid: string;
@@ -467,22 +516,26 @@ export const addProjectTool = async ({
   token: string;
   ownerId?: string;
   shareId?: string;
+  projectVersion: number;
 }) => {
   const query = buildQuery({ ownerId, shareId });
   const response = await api.post(
     `/projects/${uid}/${pid}/tool${query}`,
-    {
-      ...tool,
-    },
+    { ...tool },
     {
       headers: {
         Authorization: `Bearer ${token}`,
+        "X-Project-Version": String(projectVersion),
       },
     },
   );
 
   if (response.status !== 201) throw new Error("Failed to add tool");
+
+    return response.headers?.["x-project-version"];
+
 };
+
 
 export const downloadProjectPdf = async ({
   uid,
@@ -569,7 +622,8 @@ export const updateProjectTool = async ({
   toolParams,
   token,
   ownerId,
-  shareId
+  shareId,
+  projectVersion,
 }: {
   uid: string;
   pid: string;
@@ -578,6 +632,7 @@ export const updateProjectTool = async ({
   token: string;
   ownerId: string;
   shareId?: string;
+  projectVersion: number;
 }) => {
   const query = buildQuery({ ownerId, shareId });
   const response = await api.put(
@@ -588,11 +643,15 @@ export const updateProjectTool = async ({
     {
       headers: {
         Authorization: `Bearer ${token}`,
+        "X-Project-Version": String(projectVersion),
       },
     },
   );
 
   if (response.status !== 204) throw new Error("Failed to update tool");
+    
+  return response.headers?.["x-project-version"];
+
 };
 
 export const deleteProjectTool = async ({
@@ -601,7 +660,9 @@ export const deleteProjectTool = async ({
   toolId,
   token,
   ownerId,
-  shareId
+  shareId,
+  projectVersion,
+
 }: {
   uid: string;
   pid: string;
@@ -609,16 +670,22 @@ export const deleteProjectTool = async ({
   token: string;
   ownerId: string;
   shareId?: string;
+  projectVersion: number;
+
 }) => {
   const query = buildQuery({ ownerId, shareId });
   const response = await api.delete(`/projects/${uid}/${pid}/tool/${toolId}${query}`,
  {
     headers: {
       Authorization: `Bearer ${token}`,
+      "X-Project-Version": String(projectVersion),
     },
   });
 
   if (response.status !== 204) throw new Error("Failed to remove tool");
+
+    return response.headers?.["x-project-version"];
+
 };
 
 export const clearProjectTools = async ({
@@ -627,7 +694,8 @@ export const clearProjectTools = async ({
   token,
   toolIds,
   ownerId,
-  shareId
+  shareId,
+  projectVersion,
 }: {
   uid: string;
   pid: string;
@@ -635,10 +703,25 @@ export const clearProjectTools = async ({
   toolIds: string[];
   ownerId: string;
   shareId?: string;
+  projectVersion: number;
 }) => {
+  let v = projectVersion;
+
   for (const toolId of toolIds) {
-    await deleteProjectTool({ uid, pid, toolId, token, ownerId, shareId});
+    const newV = await deleteProjectTool({
+      uid,
+      pid,
+      toolId,
+      token,
+      ownerId,
+      shareId,
+      projectVersion: v,
+    });
+
+    if (newV) v = Number(newV);
   }
+
+  return String(v);
 };
 
 export const downloadProjectResults = async ({
@@ -744,22 +827,27 @@ export const processProject = async ({
   pid,
   token,
   ownerId,
-  shareId
+  shareId,
+  projectVersion,
+  runnerUserId,
 }: {
   uid: string;
   pid: string;
   token: string;
   ownerId?: string;
   shareId?: string;
+  projectVersion: number;
+  runnerUserId: string;  
 }) => {
   try {
     const query = buildQuery({ ownerId, shareId });
     const response = await api.post<string>(
       `/projects/${uid}/${pid}/process${query}`,
-      {},
-      {
+      { runnerUserId },   // ✅ importante
+      { 
         headers: {
           Authorization: `Bearer ${token}`,
+          "X-Project-Version": String(projectVersion),
         },
       },
     );
@@ -768,7 +856,7 @@ export const processProject = async ({
       throw new Error("Failed to request project processing");
     }
 
-    return response.data;
+    return response.headers?.["x-project-version"];
 
     } catch (error: unknown) {
       if (axios.isAxiosError(error)) {
@@ -796,7 +884,8 @@ export const processProject = async ({
     tools,
     token,
     ownerId,
-    shareId
+    shareId,
+    projectVersion,
   }: {
     uid: string;
     pid: string;
@@ -804,6 +893,7 @@ export const processProject = async ({
     token: string;
     ownerId?: string;
     shareId?: string;
+    projectVersion: number;
   }) => {
   const query = buildQuery({ ownerId, shareId });
     const response = await api.post(
@@ -812,6 +902,7 @@ export const processProject = async ({
       {
         headers: {
           Authorization: `Bearer ${token}`,
+          "X-Project-Version": String(projectVersion),
         },
       },
     );
@@ -822,31 +913,40 @@ export const processProject = async ({
     throw new Error("Failed to reorder tools");
   }
 
-    return response.data;
+    return response.headers?.["x-project-version"];
 };
 
-  export const cancelProjectProcess = async ({
-    uid,
-    pid,
-    token,
-    ownerId,
-    shareId
-  }: {
-    uid: string;
-    pid: string;
-    token: string;
-    ownerId?: string;
-    shareId?: string;
-  }) => {
+export const cancelProjectProcess = async ({
+  uid,
+  pid,
+  token,
+  ownerId,
+  shareId,
+  projectVersion,
+}: {
+  uid: string;
+  pid: string;
+  token: string;
+  ownerId?: string;
+  shareId?: string;
+  projectVersion: number;
+}) => {
   const query = buildQuery({ ownerId, shareId });
-    const response = await api.delete(
-      `/projects/${uid}/${pid}/process${query}`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
-      },
-    );
 
-    if (response.status !== 200) {
-      throw new Error("Failed to cancel project processing");
-    }
-  };
+  const response = await api.delete(
+    `/projects/${uid}/${pid}/process${query}`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-Project-Version": String(projectVersion),
+      },
+    },
+  );
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error("Failed to cancel project processing");
+  }
+
+  return response.headers?.["x-project-version"];
+};
+
