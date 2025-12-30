@@ -43,6 +43,7 @@ import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useUpdateSession } from "@/lib/mutations/session";
 import { getErrorMessage } from "@/lib/error-messages";
+import { PresetsDialog } from "@/components/presets/presets-dialog";
 
 export default function Project({
   params,
@@ -562,6 +563,7 @@ const handleCancel = () => {
                     <Play /> Apply
                   </Button>
 
+                  <PresetsDialog />
                   <AddImagesDialog />
 
                 {/* botão Share só para o owner */}

@@ -137,4 +137,72 @@ router.delete("/:user", auth.checkToken, function (req, res, next) {
     });
 });
 
+/**
+ * PRESETS
+ */
+
+// listar presets (default + user)
+router.get("/:user/presets", auth.checkToken, function (req, res) {
+  axios
+    .get(usersURL + `users/${req.params.user}/presets`, {
+      httpsAgent,
+      headers: { Authorization: req.headers["authorization"] },
+    })
+    .then((resp) => res.status(200).jsonp(resp.data))
+    .catch((err) => res.status(err.response?.status ?? 500).jsonp(err.response?.data ?? "Error listing presets"));
+});
+
+// criar preset
+router.post("/:user/presets", auth.checkToken, function (req, res) {
+  axios
+    .post(usersURL + `users/${req.params.user}/presets`, req.body, {
+      httpsAgent,
+      headers: { Authorization: req.headers["authorization"] },
+    })
+    .then((resp) => res.status(201).jsonp(resp.data))
+    .catch((err) => res.status(err.response?.status ?? 500).jsonp(err.response?.data ?? "Error creating preset"));
+});
+
+// editar preset
+router.patch("/:user/presets/:presetId", auth.checkToken, function (req, res) {
+  axios
+    .patch(usersURL + `users/${req.params.user}/presets/${req.params.presetId}`, req.body, {
+      httpsAgent,
+      headers: { Authorization: req.headers["authorization"] },
+    })
+    .then((resp) => res.status(200).jsonp(resp.data))
+    .catch((err) => res.status(err.response?.status ?? 500).jsonp(err.response?.data ?? "Error updating preset"));
+});
+
+// apagar preset
+router.delete("/:user/presets/:presetId", auth.checkToken, function (req, res) {
+  axios
+    .delete(usersURL + `users/${req.params.user}/presets/${req.params.presetId}`, {
+      httpsAgent,
+      headers: { Authorization: req.headers["authorization"] },
+    })
+    .then(() => res.sendStatus(204))
+    .catch((err) => res.status(err.response?.status ?? 500).jsonp(err.response?.data ?? "Error deleting preset"));
+});
+
+// partilhar preset
+router.post("/:user/presets/:presetId/share", auth.checkToken, function (req, res) {
+  axios
+    .post(usersURL + `users/${req.params.user}/presets/${req.params.presetId}/share`, {}, {
+      httpsAgent,
+      headers: { Authorization: req.headers["authorization"] },
+    })
+    .then((resp) => res.status(200).jsonp(resp.data))
+    .catch((err) => res.status(err.response?.status ?? 500).jsonp(err.response?.data ?? "Error sharing preset"));
+});
+
+// obter preset por link (público)
+router.get("/presets/share/:shareId", function (req, res) {
+  axios
+    .get(usersURL + `presets/share/${req.params.shareId}`, { httpsAgent })
+    .then((resp) => res.status(200).jsonp(resp.data))
+    .catch((err) => res.status(err.response?.status ?? 500).jsonp(err.response?.data ?? "Error getting shared preset"));
+});
+
+
 module.exports = router;
