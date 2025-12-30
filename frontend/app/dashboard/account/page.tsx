@@ -14,6 +14,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useSession } from "@/providers/session-provider";
+import { useTheme } from "@/providers/theme-provider";
 import { redirect, RedirectType } from "next/navigation";
 import {
   useUpdateUserProfile,
@@ -28,6 +29,7 @@ import { DeleteAccountButton } from "@/components/settings/delete-account-button
 
 export default function Account() {
   const session = useSession();
+  const { theme, setTheme } = useTheme();
   const isFreePlan = session.user.type === "free";
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [name, setName] = useState<string>("");
@@ -284,6 +286,30 @@ export default function Account() {
           </CardContent>
         </Card>
 
+        {/* Aparência */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Aparência</CardTitle>
+            <CardDescription>Escolhe entre modo claro e modo escuro.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex items-center justify-between gap-4">
+            <div className="flex flex-col">
+              <Label className="mb-1">Modo escuro</Label>
+              <p className="text-sm text-muted-foreground">
+                {theme === "dark" ? "Ativo" : "Inativo"}
+              </p>
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            >
+              {theme === "dark" ? "Desativar" : "Ativar"}
+            </Button>
+          </CardContent>
+        </Card>
+
         {/* Danger Zone — FORA da grid */}
         <Card className="border-destructive/40 bg-destructive/10">
           <CardHeader>
@@ -293,7 +319,9 @@ export default function Account() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <DeleteAccountButton />
+            <Separator className="my-6" />
+
+<DeleteAccountButton />
           </CardContent>
         </Card>
       </div>

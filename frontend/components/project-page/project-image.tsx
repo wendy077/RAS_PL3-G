@@ -89,7 +89,7 @@ export function ProjectImage({ image, animation = true }: ImageItemProps) {
               <div className="row-start-1 col-start-1 backdrop-blur-sm size-full bg-black/30 z-20" />
               {!loaded && (
                 <>
-                  <div className="row-start-1 col-start-1 z-40 bg-white size-full" />
+                  <div className="row-start-1 col-start-1 z-40 bg-background size-full" />
                   <Skeleton className="size-full row-start-1 col-start-1 z-50" />
                 </>
               )}

@@ -5,6 +5,7 @@ import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import ReactQueryProvider from "@/components/query-client";
 import { Metadata } from "next";
 import { SessionProvider } from "@/providers/session-provider";
+import { ThemeProvider } from "@/providers/theme-provider";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -28,10 +29,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${inter.variable} ${indieFlower.variable} antialiased font-body`}
       >
+        <ThemeProvider>
         <ReactQueryProvider>
           <SessionProvider>
             {children}
@@ -39,6 +41,7 @@ export default function RootLayout({
           </SessionProvider>
           <ReactQueryDevtools initialIsOpen={false} />
         </ReactQueryProvider>
+      </ThemeProvider>
       </body>
     </html>
   );
