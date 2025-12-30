@@ -27,15 +27,29 @@ import { Copy } from "lucide-react";
 import type { ShareLink } from "@/lib/projects";
 import { useUnsavedChanges } from "@/providers/project-provider";
 import { toast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
 
 type Props = {
   projectId: string;
+  projectVersion: number;
 };
 
-export function ShareProjectDialog({ projectId }: Props) {
+export function ShareProjectDialog({ projectId, projectVersion }: Props) {
   const [open, setOpen] = useState(false);
   const [lastCreatedUrl, setLastCreatedUrl] = useState<string | null>(null);
   const session = useSession();
+
+  const [vLocal, setVLocal] = useState<number>(projectVersion);
+  const qc = useQueryClient();
+  const projectKey = ["project", session.user._id, projectId, session.token, undefined, undefined];
+
+  function getLatestVersion() {
+    const cached = qc.getQueryData<any>(projectKey);
+    const vCached = cached?.version;
+    const candidates = [projectVersion, vLocal, vCached].filter(Number.isFinite) as number[];
+    return Math.max(...candidates);
+  }
+
 
   const { hasUnsavedChanges } = useUnsavedChanges();
 
@@ -71,11 +85,23 @@ export function ShareProjectDialog({ projectId }: Props) {
       return;
     }
 
-    createLink.mutate(permission, {
-      onSuccess: (data) => {
-        setLastCreatedUrl(data.url);
-      },
-    });
+    const v = getLatestVersion();
+      if (!Number.isFinite(v)) {
+        toast({ variant: "destructive", title: "Erro", description: "Versão do projeto indisponível. Recarrega a página." });
+        return;
+      }
+
+    createLink.mutate(
+      { permission, projectVersion: getLatestVersion() },
+      {
+        onSuccess: (resp) => {
+          setLastCreatedUrl(resp.data.url);
+          const newV = Number(resp.newVersionHeader);
+          if (Number.isFinite(newV)) setVLocal(newV);
+        },
+      }
+    );
+
   };
 
   const handleCopy = (url: string) => {
@@ -166,7 +192,17 @@ export function ShareProjectDialog({ projectId }: Props) {
                       <Button
                         size="sm"
                         variant="destructive"
-                        onClick={() => revokeLink.mutate(l.id)}
+                        onClick={() =>
+                          revokeLink.mutate(
+                            { shareId: l.id, projectVersion: getLatestVersion() },
+                            {
+                              onSuccess: (resp) => {
+                                const newV = Number(resp.newVersionHeader);
+                                if (Number.isFinite(newV)) setVLocal(newV);
+                              },
+                            }
+                          )
+                        }
                         disabled={revokeLink.isPending}
                       >
                         Revoke

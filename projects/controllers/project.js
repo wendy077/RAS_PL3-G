@@ -1,5 +1,49 @@
 var Project = require("../models/project");
 
+// DELETE condicional por versão
+module.exports.deleteIfVersion = async (user_id, project_id, expectedVersion) => {
+  const res = await Project.deleteOne({
+    user_id: user_id,
+    _id: project_id,
+    version: expectedVersion,
+  });
+
+  return res.deletedCount === 1;
+};
+
+// Adicionar share link (atómico + versão)
+module.exports.addShareLinkIfVersion = async (
+  user_id,
+  project_id,
+  newLink,
+  expectedVersion
+) => {
+  return await Project.findOneAndUpdate(
+    { user_id: user_id, _id: project_id, version: expectedVersion },
+    { $push: { sharedLinks: newLink }, $inc: { version: 1 } },
+    { new: true }
+  ).exec();
+};
+
+// Revogar share link (atómico + versão)
+module.exports.revokeShareLinkIfVersion = async (
+  user_id,
+  project_id,
+  shareId,
+  expectedVersion
+) => {
+  return await Project.findOneAndUpdate(
+    {
+      user_id: user_id,
+      _id: project_id,
+      version: expectedVersion,
+      "sharedLinks.id": shareId,
+    },
+    { $set: { "sharedLinks.$.revoked": true }, $inc: { version: 1 } },
+    { new: true }
+  ).exec();
+};
+
 module.exports.getAll = async (user_id) => {
   return await Project.find({ user_id: user_id }).sort({ _id: 1 }).exec();
 };

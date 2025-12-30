@@ -449,39 +449,54 @@ export const useCancelProjectProcess = (
 
 // ================== SHARING / LINKS ==================
 
-export const useCreateShareLink = (
-  userId: string,
-  projectId: string,
-  token: string,
-) => {
+export const useCreateShareLink = (userId: string, projectId: string, token: string) => {
   const qc = useQueryClient();
+  const projectKey = ["project", userId, projectId, token, undefined, undefined];
+
   return useMutation({
-    mutationFn: (permission: "read" | "edit") =>
-      createProjectShareLink({ userId, projectId, permission, token }),
-    onSuccess: () => {
-      qc.invalidateQueries({
-        queryKey: ["projectShareLinks", userId, projectId],
-      });
+    mutationFn: (args: { permission: "read" | "edit"; projectVersion: number }) =>
+      createProjectShareLink({
+        userId,
+        projectId,
+        permission: args.permission,
+        token,
+        projectVersion: args.projectVersion,
+      }),
+
+    onSuccess: (resp) => {
+      // resp.newVersionHeader vem do projects.ts
+      bumpProjectVersion(qc, projectKey, resp.newVersionHeader);
+
+      qc.invalidateQueries({ queryKey: ["projectShareLinks", userId, projectId], refetchType: "all" });
+      qc.invalidateQueries({ queryKey: projectKey, refetchType: "all" });
     },
   });
 };
 
-export const useRevokeShareLink = (
-  userId: string,
-  projectId: string,
-  token: string,
-) => {
+export const useRevokeShareLink = (userId: string, projectId: string, token: string) => {
   const qc = useQueryClient();
+  const projectKey = ["project", userId, projectId, token, undefined, undefined];
+
   return useMutation({
-    mutationFn: (shareId: string) =>
-      revokeShareLink({ userId, shareId, token }),
-    onSuccess: () => {
-      qc.invalidateQueries({
-        queryKey: ["projectShareLinks", userId, projectId],
-      });
+    mutationFn: (args: { shareId: string; projectVersion: number }) =>
+      revokeShareLink({
+        userId,
+        projectId,
+        shareId: args.shareId,
+        token,
+        projectVersion: args.projectVersion,
+      }),
+
+    onSuccess: (_resp, _vars, ctx) => {
+      // revokeShareLink retorna { newVersionHeader }
+      bumpProjectVersion(qc, projectKey, _resp.newVersionHeader);
+
+      qc.invalidateQueries({ queryKey: ["projectShareLinks", userId, projectId], refetchType: "all" });
+      qc.invalidateQueries({ queryKey: projectKey, refetchType: "all" });
     },
   });
 };
+
 
 export const useClearProjectTools = (
   uid: string,

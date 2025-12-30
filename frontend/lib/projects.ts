@@ -77,31 +77,44 @@ export const createProjectShareLink = async (params: {
   projectId: string;
   permission: "read" | "edit";
   token: string;
+  projectVersion: number;
 }) => {
-  const { userId, projectId, permission, token } = params;
+  const { userId, projectId, permission, token, projectVersion } = params;
+
   const resp = await api.post(
     `/projects/${userId}/${projectId}/share`,
     { permission },
-    { headers: { Authorization: `Bearer ${token}` } },
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-Project-Version": String(projectVersion),
+      },
+    }
   );
-  return resp.data as {
-    id: string;
-    permission: "read" | "edit";
-    createdAt: string;
-    revoked: boolean;
-    url: string;
+
+  return {
+    data: resp.data,
+    newVersionHeader: resp.headers["x-project-version"],
   };
 };
 
 export const revokeShareLink = async (params: {
   userId: string;
+  projectId: string;
   shareId: string;
   token: string;
-}): Promise<void> => {
-  const { userId, shareId, token } = params;
-  await api.delete(`/projects/${userId}/share/${shareId}`, {
-    headers: { Authorization: `Bearer ${token}` },
+  projectVersion: number;
+}) => {
+  const { userId, projectId, shareId, token, projectVersion } = params;
+
+  const resp = await api.delete(`/projects/${userId}/${projectId}/share/${shareId}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-Project-Version": String(projectVersion),
+    },
   });
+
+  return { newVersionHeader: resp.headers["x-project-version"] };
 };
 
 

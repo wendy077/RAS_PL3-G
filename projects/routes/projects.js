@@ -74,6 +74,15 @@ function count_advanced_tools(project) {
   return tools.filter((t) => advanced_tools.includes(t.procedure)).length;
 }
 
+function requireOwner(req, res, next) {
+  const caller = getCallerId(req);
+  if (String(caller) !== String(req.params.user)) {
+    return res.status(403).jsonp("Not allowed");
+  }
+  next();
+}
+
+
 /**
  * Calcula quantas operações avançadas vão ser usadas *nesta execução*.
  * - totalAdv: nº total de tools avançadas atualmente no projeto
@@ -353,7 +362,7 @@ async function deleteProjectAndResources(userId, projectId) {
 // ================== SHARING / LINKS ==================
 
 // listar links de partilha de um projeto (para o dono)
-router.get("/:user/:project/share", async (req, res) => {
+router.get("/:user/:project/share", requireOwner, async (req, res) => {
   try {
     const project = await Project.getOne(req.params.user, req.params.project);
 
@@ -372,17 +381,9 @@ router.get("/:user/:project/share", async (req, res) => {
 });
 
 // criar um novo link de partilha
-router.post("/:user/:project/share", async (req, res) => {
+router.post("/:user/:project/share", requireOwner, requireProjectVersion, async (req, res) => {
   try {
-    const project = await Project.getOne(req.params.user, req.params.project);
-
-    // garantir que o user é dono do projeto
-    if (String(project.user_id) !== String(req.params.user)) {
-      return res.status(403).jsonp("Not allowed to share this project");
-    }
-
-    const permission =
-      req.body.permission === "edit" ? "edit" : "read"; // default read
+    const permission = req.body.permission === "edit" ? "edit" : "read";
 
     const newLink = {
       id: uuidv4(),
@@ -391,28 +392,34 @@ router.post("/:user/:project/share", async (req, res) => {
       revoked: false,
     };
 
-    if (!project.sharedLinks) project.sharedLinks = [];
-    project.sharedLinks.push(newLink);
+    const updated = await Project.addShareLinkIfVersion(
+      req.params.user,
+      req.params.project,
+      newLink,
+      req.expectedVersion
+    );
 
-    await Project.update(req.params.user, req.params.project, project);
+    if (!updated) {
+      const fresh = await Project.getOne(req.params.user, req.params.project);
+      if (!fresh) return res.status(404).jsonp("Project not found");
+      return res.status(409).jsonp({
+        message: "Project version conflict",
+        serverVersion: fresh?.version ?? null,
+      });
+    }
 
-    // URL pública que o frontend vai usar (ajusta se tiveres outro host)
-    const frontendBase =
-      process.env.FRONTEND_BASE_URL || "http://localhost:8080";
+    res.set("X-Project-Version", String(updated.version));
+
+    const frontendBase = process.env.FRONTEND_BASE_URL || "http://localhost:8080";
     const url = `${frontendBase}/share/${newLink.id}`;
 
-    return res.status(201).jsonp({
-      id: newLink.id,
-      permission: newLink.permission,
-      createdAt: newLink.createdAt,
-      revoked: newLink.revoked,
-      url,
-    });
+    return res.status(201).jsonp({ ...newLink, url });
   } catch (err) {
     console.error("Error creating shared link:", err);
     return res.status(500).jsonp("Error creating shared link");
   }
 });
+
 
 // resolver um link de partilha (usado por convidados)
 router.get("/share/:shareId", async (req, res) => {
@@ -539,31 +546,35 @@ router.get("/share/:shareId/project", async (req, res) => {
 });
 
 // revogar um link de partilha
-router.delete("/:user/share/:shareId", async (req, res) => {
+router.delete("/:user/:project/share/:shareId", requireOwner, requireProjectVersion, async (req, res) => {
   try {
-    const project = await Project.getOneByShareId(req.params.shareId);
+    const { user, project, shareId } = req.params;
+    const expected = req.expectedVersion;
 
-    if (!project) {
+    //  valida que o link existe no projeto carregado
+    const link = req.projectDoc?.sharedLinks?.find((l) => l.id === shareId);
+    if (!link) return res.status(404).jsonp("Share link not found");
+    if (link.revoked) return res.status(410).jsonp("Share link revoked");
+
+    const updated = await Project.revokeShareLinkIfVersion(user, project, shareId, expected);
+
+    if (!updated) {
+      const fresh = await Project.getOne(user, project);
+      if (!fresh) return res.status(404).jsonp("Project not found");
+
+      // conflito de versão
+      if (fresh.version !== expected) {
+        return res.status(409).jsonp({
+          message: "Project version conflict",
+          serverVersion: fresh.version,
+        });
+      }
+
+      // mesma versão mas não atualizou -> link não existe / já revogado
       return res.status(404).jsonp("Share link not found");
     }
 
-    // garantir que só o dono revoga
-    if (String(project.user_id) !== String(req.params.user)) {
-      return res.status(403).jsonp("Not allowed to revoke this share link");
-    }
-
-    const idx = (project.sharedLinks || []).findIndex(
-      (l) => l.id === req.params.shareId,
-    );
-
-    if (idx === -1) {
-      return res.status(404).jsonp("Share link not found");
-    }
-
-    project.sharedLinks[idx].revoked = true;
-
-    await Project.update(project.user_id, project._id, project);
-
+    res.set("X-Project-Version", String(updated.version));
     return res.sendStatus(204);
   } catch (err) {
     console.error("Error revoking share link:", err);

@@ -98,16 +98,27 @@ router.get("/:user/:project/share", auth.checkToken, (req, res) => {
 
 // criar link de partilha
 router.post("/:user/:project/share", auth.checkToken, (req, res) => {
+    const callerId = req.authUserId || req.params.user;
   axios
     .post(
       projectsURL + `${req.params.user}/${req.params.project}/share`,
       req.body,
       {
         httpsAgent,
-        headers: { Authorization: req.headers["authorization"] },
+        headers: { 
+          Authorization: req.headers["authorization"], 
+          "X-Project-Version": req.headers["x-project-version"],
+          "X-Caller-Id": callerId,
+        },
       },
     )
-    .then((resp) => res.status(201).jsonp(resp.data))
+
+    .then((resp) => {
+          if (resp.headers?.["x-project-version"]) {
+            res.set("X-Project-Version", resp.headers["x-project-version"]);
+          }
+          return res.status(201).jsonp(resp.data);
+        })
     .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
 
 });
@@ -132,15 +143,28 @@ router.get("/share/:shareId", (req, res) => {
 });
 
 // revogar link de partilha (dono, protegido)
-router.delete("/:user/share/:shareId", auth.checkToken, (req, res) => {
-  axios
-    .delete(projectsURL + `${req.params.user}/share/${req.params.shareId}`, {
-      httpsAgent,
-      headers: { Authorization: req.headers["authorization"] },
-    })
-    .then(() => res.sendStatus(204))
-    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
+router.delete("/:user/:project/share/:shareId", auth.checkToken, (req, res) => {
+  const callerId = req.authUserId || req.params.user;
 
+  axios
+    .delete(
+      projectsURL + `${req.params.user}/${req.params.project}/share/${req.params.shareId}`,
+      {
+        httpsAgent,
+        headers: {
+          Authorization: req.headers["authorization"],
+          "X-Project-Version": req.headers["x-project-version"],
+          "X-Caller-Id": callerId,
+        },
+      }
+    )
+    .then((resp) => {
+      if (resp.headers?.["x-project-version"]) {
+        res.set("X-Project-Version", resp.headers["x-project-version"]);
+      }
+      return res.sendStatus(204);
+    })
+    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"));
 });
 
 // obter projeto completo via shareId (público, sem auth)

@@ -566,7 +566,10 @@ const handleCancel = () => {
 
                 {/* botão Share só para o owner */}
                 {session.user._id === ownerId && (
-                  <ShareProjectDialog projectId={project.data._id} />
+                  <ShareProjectDialog 
+                  projectId={project.data._id} 
+                  projectVersion={project.data.version}
+                />
                 )}
                 </>
               )}
