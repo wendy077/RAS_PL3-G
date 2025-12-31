@@ -24,6 +24,7 @@ import { downloadProjectPdf } from "../projects";
 import { createBlobUrlFromFile, downloadBlob } from "../utils";
 import { validateSession, SessionData } from "../session";
 import type { ProjectTool, ProjectToolResponse } from "../projects";
+import { assistantSuggest, AssistantSuggestion } from "../projects";
 
 function bumpProjectVersion(
   qc: ReturnType<typeof useQueryClient>,
@@ -525,3 +526,32 @@ export const useClearProjectTools = (
   });
 };
 
+export const useAssistantSuggest = (
+  uid: string,
+  pid: string,
+  token: string,
+  ownerId?: string,
+  shareId?: string,
+) => {
+  const qc = useQueryClient();
+  const projectKey = ["project", uid, pid, token, ownerId, shareId];
+
+  return useMutation({
+    mutationFn: (args: { message: string; currentTools: ProjectToolResponse[]; projectVersion: number }) =>
+      assistantSuggest({
+        uid: shareId ? (ownerId ?? uid) : uid,
+        pid,
+        token,
+        ownerId,
+        shareId,
+        message: args.message,
+        currentTools: args.currentTools,
+        projectVersion: args.projectVersion,
+      }),
+
+    onSuccess: (resp) => {
+      bumpProjectVersion(qc, projectKey, resp.newVersionHeader);
+      // não é preciso invalidar aqui obrigatoriamente (só sugestões)
+    },
+  });
+};

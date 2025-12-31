@@ -1635,4 +1635,149 @@ router.delete("/:user/:project/process", checkSharePermission, requireEditPermis
   }
 });
 
+// ================== AI ASSISTANT (SUGGEST) ==================
+
+function normalizeText(s) {
+  return String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+}
+
+function buildSuggestions(message, currentTools) {
+  const txt = normalizeText(message);
+
+  // helpers
+  const has = (...words) => words.some((w) => txt.includes(normalizeText(w)));
+
+  // recipes (tools + params) — usa só procedures que já existem 
+  const S = [];
+
+  // 1) Preto & Branco
+  if (has("preto", "branco", "pb", "p&b", "black and white", "monocrom")) {
+    S.push({
+      name: "Preto & Branco",
+      description: "Remove cor e aumenta contraste para um look clássico.",
+      tools: [
+        { procedure: "saturation", params: { saturationFactor: 0 } },
+        { procedure: "contrast", params: { contrastFactor: 1.25 } },
+        { procedure: "brightness", params: { brightness: 1.05 } },
+      ],
+    });
+  }
+
+  // 2) Vintage
+  if (has("vintage", "retro", "filme", "analog", "nostalg")) {
+    S.push({
+      name: "Vintage Suave",
+      description: "Contraste suave, tons mais quentes e leve dessaturação.",
+      tools: [
+        { procedure: "contrast", params: { contrastFactor: 1.12 } },
+        { procedure: "saturation", params: { saturationFactor: 0.88 } },
+        { procedure: "brightness", params: { brightness: 1.06 } },
+      ],
+    });
+  }
+
+  // 3) Pop / Mais cor
+  if (has("pop", "mais cor", "vibrante", "satur", "vivo")) {
+    S.push({
+      name: "Pop (Mais cor)",
+      description: "Aumenta saturação e contraste para cores mais vivas.",
+      tools: [
+        { procedure: "saturation", params: { saturationFactor: 1.45 } },
+        { procedure: "contrast", params: { contrastFactor: 1.18 } },
+        { procedure: "brightness", params: { brightness: 1.02 } },
+      ],
+    });
+  }
+
+  // 4) Mais claro / Mais escuro
+  if (has("mais claro", "clarear", "brilho", "mais luz")) {
+    S.push({
+      name: "Iluminar",
+      description: "Aumenta o brilho de forma moderada.",
+      tools: [{ procedure: "brightness", params: { brightness: 1.18 } }],
+    });
+  }
+  if (has("mais escuro", "escurecer", "menos luz")) {
+    S.push({
+      name: "Escurecer",
+      description: "Reduz o brilho de forma moderada.",
+      tools: [{ procedure: "brightness", params: { brightness: 0.88 } }],
+    });
+  }
+
+  // fallback: se não apanhou keywords, devolve sugestões gerais
+  if (S.length === 0) {
+    S.push(
+      {
+        name: "Contraste Suave",
+        description: "Leve aumento de contraste para dar mais definição.",
+        tools: [{ procedure: "contrast", params: { contrastFactor: 1.12 } }],
+      },
+      {
+        name: "Realce de cor",
+        description: "Aumenta ligeiramente a saturação.",
+        tools: [{ procedure: "saturation", params: { saturationFactor: 1.18 } }],
+      },
+      {
+        name: "Luz & Cor",
+        description: "Equilíbrio simples entre brilho, contraste e cor.",
+        tools: [
+          { procedure: "brightness", params: { brightness: 1.06 } },
+          { procedure: "contrast", params: { contrastFactor: 1.10 } },
+          { procedure: "saturation", params: { saturationFactor: 1.10 } },
+        ],
+      },
+    );
+  }
+
+  // RNF66 “≥2 tools” só é requisito para criar preset;
+  // aqui o assistente pode sugerir 1 tool (mas podemos forçar >=2 ao por padding).
+  // Vou padronizar para >=2 para ficar alinhado com a filosofia de "recipe".
+  for (const sug of S) {
+    if (Array.isArray(sug.tools) && sug.tools.length === 1) {
+      // adiciona uma tool neutra/leve para cumprir "recipe >= 2"
+      sug.tools.push({ procedure: "contrast", params: { contrastFactor: 1.05 } });
+    }
+  }
+
+  // evita devolver uma sugestão “igual ao que já está”
+  // (muito básico: compara JSON string)
+  const currentStr = JSON.stringify(currentTools || []);
+  return S.filter((s) => JSON.stringify(s.tools) !== currentStr).slice(0, 5);
+}
+
+router.post(
+  "/:user/:project/assistant/suggest",
+  checkSharePermission,
+  requireEditPermission,
+  requireProjectVersion,
+  async (req, res) => {
+    try {
+      const ownerId = req.params.user;
+
+      const { message, currentTools } = req.body || {};
+      if (!message || String(message).trim().length < 2) {
+        return res.status(400).jsonp("Message is required");
+      }
+
+      // podes usar project.tools como fonte de verdade se quiseres
+      // const project = await Project.getOne(ownerId, req.params.project);
+
+      const suggestions = buildSuggestions(message, currentTools);
+
+      return res.status(200).jsonp({
+        suggestions,
+      });
+    } catch (err) {
+      console.error("assistant/suggest error:", err);
+      return res.status(500).jsonp("Error generating suggestions");
+    }
+  },
+);
+
+// ================== FIM AI ASSISTANT ==================
+
 module.exports = { router, process_msg };

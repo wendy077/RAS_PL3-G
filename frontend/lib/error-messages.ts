@@ -17,7 +17,10 @@ type ErrorContext =
   | "ai"
   | "account-profile"     
   | "account-password" 
-  | "generic";
+  | "generic"
+  | "assistant-suggest"
+  | "project-reorder";
+
 
 type ErrorInfo = {
   title: string;
@@ -160,6 +163,22 @@ export function getErrorMessage(
         description:
           backendMsg ??
           "Não foi possível carregar o projeto. Verifica a tua ligação e tenta novamente.",
+      };
+
+    case "assistant-suggest":
+      return {
+        title: "Erro ao gerar sugestões",
+        description:
+          backendMsg ??
+          "Não foi possível obter sugestões do assistente. Tenta novamente.",
+      };
+
+    case "project-reorder":
+      return {
+        title: "Erro ao aplicar sugestão",
+        description:
+          backendMsg ??
+          "Não foi possível atualizar a sequência de ferramentas. Tenta novamente.",
       };
 
     default:

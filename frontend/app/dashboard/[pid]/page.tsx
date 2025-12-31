@@ -44,6 +44,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useUpdateSession } from "@/lib/mutations/session";
 import { getErrorMessage } from "@/lib/error-messages";
 import { PresetsDialog } from "@/components/presets/presets-dialog";
+import { AiAssistantDialog } from "@/components/assistant/ai-assistant-dialog";
 
 export default function Project({
   params,
@@ -562,6 +563,16 @@ const handleCancel = () => {
                   >
                     <Play /> Apply
                   </Button>
+
+                  <AiAssistantDialog
+                    uid={session.user._id}
+                    pid={pid}
+                    token={session.token}
+                    ownerId={ownerId}
+                    shareId={shareId}
+                    projectVersion={project.data.version}
+                    currentTools={project.data.tools}
+                  />
 
                   <PresetsDialog />
                   <AddImagesDialog />

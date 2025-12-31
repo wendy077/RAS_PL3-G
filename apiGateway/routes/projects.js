@@ -711,4 +711,36 @@ router.delete(
   }
 );
 
+// ================== AI ASSISTANT ==================
+
+// sugestões do assistente de IA para um projeto
+router.post("/:user/:project/assistant/suggest", auth.checkToken, (req, res) => {
+  const ownerId = req.query.owner || req.params.user;
+  const callerId = req.authUserId || req.params.user;
+
+  axios
+    .post(
+      projectsURL + `${ownerId}/${req.params.project}/assistant/suggest`,
+      req.body,
+      {
+        httpsAgent,
+        params: req.query.share ? { share: req.query.share } : undefined,
+        headers: {
+          Authorization: req.headers["authorization"],
+          "X-Project-Version": req.headers["x-project-version"],
+          "X-Caller-Id": callerId,
+        },
+      },
+    )
+    .then((resp) => {
+      if (resp.headers?.["x-project-version"]) {
+        res.set("X-Project-Version", resp.headers["x-project-version"]);
+      }
+      return res.status(200).jsonp(resp.data);
+    })
+    .catch((err) => forwardAxiosError(res, err, "Error generating assistant suggestions"));
+});
+
+// ================== FIM AI ASSISTANT ==================
+
 module.exports = router;

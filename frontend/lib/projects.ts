@@ -61,6 +61,15 @@ export type ShareLink = {
   revoked: boolean;
 };
 
+export type AssistantSuggestion = {
+  name: string;
+  description: string;
+  tools: Array<{
+    procedure: ToolNames;
+    params: ToolParams;
+  }>;
+};
+
 export const listProjectShareLinks = async (
   userId: string,
   projectId: string,
@@ -963,3 +972,46 @@ export const cancelProjectProcess = async ({
   return response.headers?.["x-project-version"];
 };
 
+export const assistantSuggest = async (params: {
+  uid: string;
+  pid: string;
+  token: string;
+  message: string;
+  currentTools: ProjectToolResponse[];
+  ownerId?: string;
+  shareId?: string;
+  projectVersion: number;
+}) => {
+  const {
+    uid,
+    pid,
+    token,
+    message,
+    currentTools,
+    ownerId,
+    shareId,
+    projectVersion,
+  } = params;
+
+  const query = buildQuery({ ownerId, shareId });
+
+  const resp = await api.post<{ suggestions: AssistantSuggestion[] }>(
+    `/projects/${uid}/${pid}/assistant/suggest${query}`,
+    { message, currentTools },
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-Project-Version": String(projectVersion),
+      },
+    },
+  );
+
+  if (resp.status !== 200 || !resp.data) {
+    throw new Error("Failed to get assistant suggestions");
+  }
+
+  return {
+    suggestions: resp.data.suggestions ?? [],
+    newVersionHeader: resp.headers?.["x-project-version"],
+  };
+};
