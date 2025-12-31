@@ -422,6 +422,25 @@ services:
     volumes:
       - image_data:/app/images
 
+  expand_ai_tool:
+    build:
+      context: ./Tools
+      dockerfile: expand_ai/Dockerfile
+    container_name: picturas-expand-ai-tool-ms
+    networks:
+      - elk
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: on-failure
+    volumes:
+      - image_data:/app/images
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=user
+      - RABBITMQ_PASS=password
+      
   watermark_tool_ms:
     image: prcsousa/picturas-watermark-tool-ms:latest
     container_name: picturas-watermark-tool-ms

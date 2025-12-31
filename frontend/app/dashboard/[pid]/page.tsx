@@ -511,6 +511,7 @@ const handleCancel = () => {
                         "people_ai",
                         "text_ai",
                         "upgrade_ai",
+                        "expand_ai",
                       ];
 
                       processIsAiRef.current = project.data.tools.some((t) =>

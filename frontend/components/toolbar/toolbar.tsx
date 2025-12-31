@@ -30,6 +30,7 @@ import {
 } from "../ui/dialog";
 import { Eraser } from "lucide-react";
 import { useState } from "react";
+import ExpandAITool from "./expand-ai-tool";
 
 export function Toolbar() {
   const searchParams = useSearchParams();
@@ -72,6 +73,7 @@ export function Toolbar() {
         <ObjectAITool disabled={disabled} />
         <PeopleAITool disabled={disabled} />
         <TextAITool disabled={disabled} />
+        <ExpandAITool disabled={disabled} />
         <UpgradeAITool disabled={disabled} />
         <AppliedToolsList />
       </div>

@@ -16,6 +16,7 @@ const queues = {
     'text_ai': 'text_ai_queue',
     'obj_ai': 'obj_ai_queue',
     'people_ai': 'people_ai_queue',
+    'expand_ai': 'expand_ai_queue',
     'watermark': 'watermark_queue',
     'project': 'project_queue',
     'ws': 'ws_queue'

@@ -153,6 +153,13 @@
             "arguments": {}
         },
         {
+            "name": "expand_ai_queue",
+            "vhost": "/",
+            "durable": true,
+            "auto_delete": false,
+            "arguments": {}
+        },
+        {
             "name": "ws_queue",
             "vhost": "/",
             "durable": true,
@@ -298,6 +305,14 @@
             "destination": "people_ai_queue",
             "destination_type": "queue",
             "routing_key": "people_ai_queue",
+            "arguments": {}
+        },
+        {
+            "source": "picturas",
+            "vhost": "/",
+            "destination": "expand_ai_queue",
+            "destination_type": "queue",
+            "routing_key": "expand_ai_queue",
             "arguments": {}
         },
         {

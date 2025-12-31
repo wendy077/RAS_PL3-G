@@ -37,6 +37,14 @@ export interface SaturationToolParams {
   saturationFactor: number; // 0.0 - 2.0 (1.0 normal image)
 }
 
+export type ExpandAiParams = {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+  mode?: "inpaint"; // podes deixar só inpaint para simplificar
+};
+
 export type ToolParams =
   | BinarizationToolParams
   | BorderToolParams
@@ -46,6 +54,7 @@ export type ToolParams =
   | ResizeToolParams
   | RotateToolParams
   | SaturationToolParams
+  | ExpandAiParams
   | object;
 
 export type ToolNames =
@@ -65,4 +74,5 @@ export type ToolNames =
   | "text_ai"
   | "obj_ai"
   | "people_ai"
+  | "expand_ai"
   | "project";

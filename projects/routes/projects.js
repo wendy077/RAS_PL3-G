@@ -66,6 +66,7 @@ const advanced_tools = [
   "text_ai",
   "obj_ai",
   "people_ai",
+  "expand_ai",
 ];
 
 // Conta quantas ferramentas avançadas existem neste projeto (independente de imagens)
