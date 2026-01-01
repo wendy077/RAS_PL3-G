@@ -28,6 +28,8 @@ const Process = require("../controllers/process");
 const Result = require("../controllers/result");
 const Preview = require("../controllers/preview");
 const jwt = require("jsonwebtoken");
+const { getCallerId } = require("../utils/caller");
+const { ensureEditorSlot, releaseEditorSlot } = require("../utils/presence");
 
 const {
   get_image_docker,
@@ -58,6 +60,8 @@ const httpsAgent = new https.Agent({
 
 const users_ms = "https://users:10001/";
 const minio_domain = process.env.MINIO_DOMAIN;
+
+const enforcePresenceLimit = require("../middleware/enforcePresenceLimit");
 
 const advanced_tools = [
   "cut_ai",
@@ -103,22 +107,6 @@ function advanced_tool_num(project) {
   const adv_ops = newTools > 0 ? newTools * project.imgs.length : 0;
 
   return { totalAdv, charged, newTools, adv_ops };
-}
-function getCallerId(req) {
-  // 1) se o api-gateway mandar x-caller-id, usa
-  const forwarded = req.headers["x-caller-id"];
-  if (forwarded) return forwarded;
-
-  // 2) senão, extrai do JWT Authorization (SEM verify)
-  const auth = req.headers["authorization"];
-  if (auth && auth.startsWith("Bearer ")) {
-    const token = auth.slice("Bearer ".length);
-    const payload = jwt.decode(token);
-    if (payload?.id) return payload.id;
-  }
-
-  // 3) fallback: owner
-  return req.params.user;
 }
 
 // TODO process message according to type of output
@@ -366,6 +354,7 @@ async function deleteProjectAndResources(userId, projectId) {
 router.get("/:user/:project/share", requireOwner, async (req, res) => {
   try {
     const project = await Project.getOne(req.params.user, req.params.project);
+    if (!project) return res.status(404).jsonp("Project not found");
 
     const sharedLinks = (project.sharedLinks || []).map((l) => ({
       id: l.id,
@@ -381,8 +370,9 @@ router.get("/:user/:project/share", requireOwner, async (req, res) => {
   }
 });
 
+
 // criar um novo link de partilha
-router.post("/:user/:project/share", requireOwner, requireProjectVersion, async (req, res) => {
+router.post("/:user/:project/share", requireOwner, enforcePresenceLimit, requireProjectVersion, async (req, res) => {
   try {
     const permission = req.body.permission === "edit" ? "edit" : "read";
 
@@ -547,7 +537,7 @@ router.get("/share/:shareId/project", async (req, res) => {
 });
 
 // revogar um link de partilha
-router.delete("/:user/:project/share/:shareId", requireOwner, requireProjectVersion, async (req, res) => {
+router.delete("/:user/:project/share/:shareId", requireOwner, enforcePresenceLimit, requireProjectVersion, async (req, res) => {
   try {
     const { user, project, shareId } = req.params;
     const expected = req.expectedVersion;
@@ -606,7 +596,41 @@ router.get("/:user", (req, res, next) => {
 });
 
 // Get a specific user's project
-router.get("/:user/:project", checkSharePermission, (req, res, next) => {
+router.get("/:user/:project", checkSharePermission, async (req, res, next) => {
+  try {
+    // só conta como “colaborador” se puder editar (dono ou share edit)
+    const canEdit = !req.sharedPermission || req.sharedPermission === "edit";
+
+    if (canEdit) {
+      const ownerId = req.params.user;
+      const projectId = req.params.project;
+      console.log("[GET /:user/:project headers]", {
+        hasAuth: !!req.headers.authorization,
+        authStart: req.headers.authorization?.slice(0, 20),
+        caller: getCallerId(req),
+      });
+
+      const callerId = getCallerId(req);
+      if (!callerId) {
+        return res.status(401).jsonp("Authentication required");
+      }
+
+      const result = await ensureEditorSlot({ ownerId, projectId, callerId });
+      if (!result.ok) {
+        return res.status(429).jsonp({
+          message: "Too many active editors for this project",
+          active: result.active,
+          limit: result.limit,
+        });
+      }
+    }
+
+    return next();
+  } catch (e) {
+    console.error("Presence limit error on GET /:user/:project:", e);
+    return res.status(500).jsonp("Error checking presence limit");
+  }
+}, (req, res, next) => {
   Project.getOne(req.params.user, req.params.project)
     .then(async (project) => {
       const response = {
@@ -821,7 +845,7 @@ router.post("/:user", (req, res, next) => {
 });
 
 // Preview an image
-router.post("/:user/:project/preview/:img", checkSharePermission, requireEditPermission, (req, res, next) => {
+router.post("/:user/:project/preview/:img", checkSharePermission, requireEditPermission, enforcePresenceLimit, (req, res, next) => {
   const ownerId = req.params.user;
   const runnerUserId = getCallerId(req);
 
@@ -926,7 +950,7 @@ router.post("/:user/:project/preview/:img", checkSharePermission, requireEditPer
 
 // Add new image to a project
 router.post(
-  "/:user/:project/img", checkSharePermission, requireEditPermission, requireProjectVersion, upload.single("image"),
+  "/:user/:project/img", checkSharePermission, requireEditPermission, enforcePresenceLimit, requireProjectVersion, upload.single("image"),
   async (req, res) => {
     console.log("PROJECTS-MS /:user/:project/img HIT, file =", !!req.file);
     if (!req.file) {
@@ -1004,7 +1028,7 @@ router.post(
 );
 
 // Add new tool to a project
-router.post("/:user/:project/tool", checkSharePermission, requireEditPermission, requireProjectVersion, (req, res, next) => {
+router.post("/:user/:project/tool", checkSharePermission, requireEditPermission, enforcePresenceLimit, requireProjectVersion, (req, res, next) => {
   // Reject posts to tools that don't fullfil the requirements
   if (!req.body.procedure || !req.body.params) {
     res
@@ -1062,6 +1086,7 @@ router.post(
   "/:user/:project/reorder",
   checkSharePermission,
   requireEditPermission,
+  enforcePresenceLimit,
   requireProjectVersion,
   (req, res) => {
     Project.getOne(req.params.user, req.params.project)
@@ -1098,7 +1123,7 @@ router.post(
 );
 
 // Process a specific project
-router.post("/:user/:project/process", checkSharePermission, requireEditPermission, requireProjectVersion, (req, res) => {
+router.post("/:user/:project/process", checkSharePermission, requireEditPermission, enforcePresenceLimit, requireProjectVersion, (req, res) => {
   const ownerId = req.params.user;
   const runnerUserId = getCallerId(req); // <-- agora pode vir do body
   
@@ -1337,6 +1362,7 @@ router.put(
   "/:user/:project",
   checkSharePermission,
   requireEditPermission,
+  enforcePresenceLimit,
   requireProjectVersion,
   (req, res) => {
     Project.getOne(req.params.user, req.params.project)
@@ -1370,6 +1396,7 @@ router.put(
   "/:user/:project/tool/:tool",
   checkSharePermission,
   requireEditPermission,
+  enforcePresenceLimit,
   requireProjectVersion,
   (req, res) => {
     Project.getOne(req.params.user, req.params.project)
@@ -1411,7 +1438,7 @@ router.put(
 );
 
 // Delete a project
-router.delete( "/:user/:project", checkSharePermission, requireEditPermission, requireProjectVersion, async (req, res) => {
+router.delete( "/:user/:project", checkSharePermission, requireEditPermission, enforcePresenceLimit, requireProjectVersion, async (req, res) => {
 
     const ok = await Project.deleteIfVersion(req.params.user, req.params.project, req.expectedVersion);
     if (!ok) {
@@ -1443,7 +1470,7 @@ router.delete("/:user", async (req, res, next) => {
 
 
 // Delete an image from a project
-router.delete("/:user/:project/img/:img", checkSharePermission, requireEditPermission, requireProjectVersion, (req, res, next) => {
+router.delete("/:user/:project/img/:img", checkSharePermission, requireEditPermission, enforcePresenceLimit, requireProjectVersion, (req, res, next) => {
   // Get project and delete specified image
   Project.getOne(req.params.user, req.params.project)
     .then(async (project) => {
@@ -1528,6 +1555,7 @@ router.delete(
   "/:user/:project/tool/:tool",
   checkSharePermission,
   requireEditPermission,
+  enforcePresenceLimit,
   requireProjectVersion,
   (req, res) => {
     Project.getOne(req.params.user, req.params.project)
@@ -1566,7 +1594,7 @@ router.delete(
 );
 
 // Cancelar processamento de um projeto 
-router.delete("/:user/:project/process", checkSharePermission, requireEditPermission, requireProjectVersion, async (req, res) => {
+router.delete("/:user/:project/process", checkSharePermission, requireEditPermission, enforcePresenceLimit, requireProjectVersion, async (req, res) => {
   try {
     // 1) tentar devolver operações ao utilizador (apenas as pendentes desta execução)
     try {
@@ -1754,6 +1782,7 @@ router.post(
   "/:user/:project/assistant/suggest",
   checkSharePermission,
   requireEditPermission,
+  enforcePresenceLimit,
   requireProjectVersion,
   async (req, res) => {
     try {
@@ -1780,5 +1809,89 @@ router.post(
 );
 
 // ================== FIM AI ASSISTANT ==================
+
+router.post(
+  "/:user/:project/presence",
+  checkSharePermission,
+  requireEditPermission,
+  enforcePresenceLimit,
+  async (req, res) => {
+    try {
+      const ownerId = req.params.user;
+      const projectId = req.params.project;
+      const callerId = getCallerId(req);
+      if (!callerId) return res.status(401).jsonp("Authentication required");
+
+      const result = await ensureEditorSlot({ ownerId, projectId, callerId });
+
+      if (!result.ok) {
+        return res.status(429).jsonp({
+          message: "Too many active editors for this project",
+          active: result.active,
+          limit: result.limit,
+          ownerType: result.ownerType,
+        });
+      }
+
+      return res.status(200).jsonp({
+        ok: true,
+        active: result.active,
+        limit: result.limit,
+        ownerType: result.ownerType,
+      });
+    } catch (e) {
+      return res.status(501).jsonp("Error registering presence");
+    }
+  }
+);
+
+router.delete(
+  "/:user/:project/presence",
+  checkSharePermission,
+  requireEditPermission,
+  enforcePresenceLimit,
+  async (req, res) => {
+    try {
+      const ownerId = req.params.user;
+      const projectId = req.params.project;
+      const callerId = getCallerId(req);
+      if (!callerId) return res.status(401).jsonp("Authentication required");
+
+      await releaseEditorSlot({ ownerId, projectId, callerId });
+      return res.sendStatus(204);
+    } catch (e) {
+      return res.status(501).jsonp("Error releasing presence");
+    }
+  }
+);
+
+// heartbeat (cria/refresh presença)
+router.post("/:owner/:project/presence", async (req, res) => {
+  const ownerId = req.params.owner;
+  const projectId = req.params.project;
+  const callerId = req.headers["x-caller-id"] || ownerId;
+
+  const result = await ensureEditorSlot({ ownerId, projectId, callerId });
+
+  if (!result.ok) {
+    return res.status(429).jsonp({
+      message: "Too many active editors for this project",
+      active: result.active,
+      limit: result.limit,
+    });
+  }
+
+  return res.sendStatus(204);
+});
+
+// libertar presença
+router.delete("/:owner/:project/presence", async (req, res) => {
+  const ownerId = req.params.owner;
+  const projectId = req.params.project;
+  const callerId = req.headers["x-caller-id"] || ownerId;
+
+  await releaseEditorSlot({ ownerId, projectId, callerId });
+  return res.sendStatus(204);
+});
 
 module.exports = { router, process_msg };

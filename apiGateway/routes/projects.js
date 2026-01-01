@@ -188,10 +188,18 @@ router.get("/share/:shareId/project", (req, res) => {
  * @returns List of projects, each project has no information about it's images or tools
  */
 router.get("/:user", auth.checkToken, function (req, res, next) {
+  const callerId = req.authUserId || req.params.user;
+
   axios
-    .get(projectsURL + `${req.params.user}`, { httpsAgent: httpsAgent })
+    .get(projectsURL + `${req.params.user}`, {
+      httpsAgent,
+      headers: {
+        Authorization: req.headers["authorization"],
+        "X-Caller-Id": callerId,
+      },
+    })
     .then((resp) => res.status(200).jsonp(resp.data))
-    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
+    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"));
 });
 
 /**
@@ -201,14 +209,21 @@ router.get("/:user", auth.checkToken, function (req, res, next) {
  */
 router.get("/:user/:project", auth.checkToken, function (req, res, next) {
   const ownerId = req.query.owner || req.params.user;
+  const callerId = req.authUserId || req.params.user;
+
   axios
     .get(projectsURL + `${ownerId}/${req.params.project}`, {
-      httpsAgent: httpsAgent,
+      httpsAgent,
       params: req.query.share ? { share: req.query.share } : undefined,
+      headers: {
+        Authorization: req.headers["authorization"],
+        "X-Caller-Id": callerId,
+      },
     })
     .then((resp) => res.status(200).jsonp(resp.data))
-    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
+    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"));
 });
+
 
 /**
  * Get project image
@@ -220,18 +235,18 @@ router.get(
   auth.checkToken,
   function (req, res, next) {
     const ownerId = req.query.owner || req.params.user;
+    const callerId = req.authUserId || req.params.user;
+
     axios
-      .get(
-        projectsURL +
-          `${ownerId}/${req.params.project}/img/${req.params.img}`,
-        {
-          httpsAgent: httpsAgent,
-          params: req.query.share ? { share: req.query.share } : undefined,
-        }
-      )
-      .then((resp) => {
-        res.status(200).send(resp.data);
+      .get(projectsURL + `${ownerId}/${req.params.project}/img/${req.params.img}`, {
+        httpsAgent,
+        params: req.query.share ? { share: req.query.share } : undefined,
+        headers: {
+          Authorization: req.headers["authorization"],
+          "X-Caller-Id": callerId,
+        },
       })
+      .then((resp) => res.status(200).send(resp.data))
       .catch((err) => forwardAxiosError(res, err, "mensagem fallback"));
   }
 );
@@ -243,16 +258,21 @@ router.get(
  */
 router.get("/:user/:project/imgs", auth.checkToken, function (req, res, next) {
   const ownerId = req.query.owner || req.params.user;
+  const callerId = req.authUserId || req.params.user;
+
   axios
     .get(projectsURL + `${ownerId}/${req.params.project}/imgs`, {
-      httpsAgent: httpsAgent,
+      httpsAgent,
       params: req.query.share ? { share: req.query.share } : undefined,
+      headers: {
+        Authorization: req.headers["authorization"],
+        "X-Caller-Id": callerId,
+      },
     })
-    .then((resp) => {
-      res.status(200).send(resp.data);
-    })
-    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
+    .then((resp) => res.status(200).send(resp.data))
+    .catch((err) => forwardAxiosError(res, err, "mensagem fallback"));
 });
+
 
 /**
  * Get project's processment result
@@ -264,14 +284,20 @@ router.get(
   auth.checkToken,
   function (req, res, next) {
     const ownerId = req.query.owner || req.params.user;
+    const callerId = req.authUserId || req.params.user;
+
     axios
       .get(projectsURL + `${ownerId}/${req.params.project}/process`, {
-        httpsAgent: httpsAgent,
+        httpsAgent,
         responseType: "arraybuffer",
         params: req.query.share ? { share: req.query.share } : undefined,
+        headers: {
+          Authorization: req.headers["authorization"],
+          "X-Caller-Id": callerId,
+        },
       })
       .then((resp) => res.status(200).send(resp.data))
-      .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
+      .catch((err) => forwardAxiosError(res, err, "mensagem fallback"));
   }
 );
 
@@ -313,20 +339,22 @@ router.get(
   auth.checkToken,
   function (req, res, next) {
     const ownerId = req.query.owner || req.params.user;
+    const callerId = req.authUserId || req.params.user;
+
     axios
-      .get(
-        projectsURL + `${ownerId}/${req.params.project}/process/url`,
-        {
-          httpsAgent: httpsAgent,
-          params: req.query.share ? { share: req.query.share } : undefined,
-        }
-      )
-      .then((resp) => {
-        res.status(200).send(resp.data);
+      .get(projectsURL + `${ownerId}/${req.params.project}/process/url`, {
+        httpsAgent,
+        params: req.query.share ? { share: req.query.share } : undefined,
+        headers: {
+          Authorization: req.headers["authorization"],
+          "X-Caller-Id": callerId,
+        },
       })
-      .catch((err) => forwardAxiosError(res, err, "mensagem fallback"))
+      .then((resp) => res.status(200).send(resp.data))
+      .catch((err) => forwardAxiosError(res, err, "mensagem fallback"));
   }
 );
+
 
 /**
  * Create new user's project
@@ -742,5 +770,49 @@ router.post("/:user/:project/assistant/suggest", auth.checkToken, (req, res) => 
 });
 
 // ================== FIM AI ASSISTANT ==================
+
+// ================== PRESENCE (ACTIVE EDITORS) ==================
+
+// heartbeat: manter editor ativo
+router.post("/:user/:project/presence", auth.checkToken, (req, res) => {
+  const ownerId = req.query.owner || req.params.user;
+  const callerId = req.authUserId || req.params.user;
+
+  axios
+    .post(
+      projectsURL + `${ownerId}/${req.params.project}/presence`,
+      {},
+      {
+        httpsAgent,
+        params: req.query.share ? { share: req.query.share } : undefined,
+        headers: {
+          Authorization: req.headers["authorization"],
+          "X-Caller-Id": callerId,
+        },
+      },
+    )
+    .then((resp) => res.status(204).send())
+    .catch((err) => forwardAxiosError(res, err, "Error updating presence"));
+});
+
+// libertar slot
+router.delete("/:user/:project/presence", auth.checkToken, (req, res) => {
+  const ownerId = req.query.owner || req.params.user;
+  const callerId = req.authUserId || req.params.user;
+
+  axios
+    .delete(projectsURL + `${ownerId}/${req.params.project}/presence`, {
+      httpsAgent,
+      params: req.query.share ? { share: req.query.share } : undefined,
+      headers: {
+        Authorization: req.headers["authorization"],
+        "X-Caller-Id": callerId,
+      },
+    })
+    .then(() => res.sendStatus(204))
+    .catch((err) => forwardAxiosError(res, err, "Error releasing presence"));
+});
+
+// ================== END PRESENCE ==================
 
 module.exports = router;

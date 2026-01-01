@@ -158,6 +158,51 @@ export default function Project({
     };
   }, [shareId, mode]);
 
+  // heartbeat de presença (editores ativos) enquanto estiver em mode=edit
+useEffect(() => {
+  if (mode !== "edit") return;
+
+  let cancelled = false;
+
+  const qs = new URLSearchParams();
+  if (ownerId) qs.set("owner", ownerId);
+  if (shareId) qs.set("share", shareId);
+
+const baseUrl = `/api-gateway/projects/${session.user._id}/${pid}/presence?${qs.toString()}`;
+
+  async function pingPresence() {
+    try {
+      await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.token}`,
+        },
+      });
+    } catch {
+      // ignora (o erro “a sério” aparece quando se tenta carregar o projeto)
+    }
+  }
+
+  // ping inicial
+  pingPresence();
+
+  // ping periódico
+  const interval = setInterval(() => {
+    if (!cancelled) pingPresence();
+  }, 5000);
+
+  return () => {
+    cancelled = true;
+    clearInterval(interval);
+
+    // libertar slot (best-effort)
+    fetch(baseUrl, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${session.token}` },
+    }).catch(() => {});
+  };
+}, [mode, pid, ownerId, shareId, session.token, session.user._id]);
+
 useEffect(() => {
   if (!socket.data) return;
 
@@ -355,19 +400,73 @@ useEffect(() => {
 ]);
 
 if (project.isError) {
-  // caso especial: estamos num projeto aberto via link de partilha
+  // caso especial: projeto aberto via link de partilha
   if (shareId) {
+    // tenta extrair o status do erro (React Query + Axios)
+    const status =
+      (project.error as any)?.response?.status ??
+      (project.error as any)?.status;
+
+    const data = (project.error as any)?.response?.data;
+
+    // 429 = limite de editores ativos
+    if (status === 429) {
+      const active = data?.active;
+      const limit = data?.limit;
+
+      return (
+        <div className="flex size-full justify-center items-center h-screen p-8">
+          <Alert variant="destructive" className="w-fit max-w-[40rem] text-wrap truncate">
+            <OctagonAlert className="size-4" />
+            <AlertTitle>Limite de colaboradores atingido</AlertTitle>
+            <AlertDescription>
+              {typeof active === "number" && typeof limit === "number"
+                ? `Este projeto já tem ${active}/${limit} editores ativos. Fecha uma sessão ou tenta novamente daqui a pouco.`
+                : "Este projeto já tem o número máximo de editores ativos. Fecha uma sessão ou tenta novamente daqui a pouco."}
+            </AlertDescription>
+          </Alert>
+        </div>
+      );
+    }
+
+    // 410 = revogado
+    if (status === 410) {
+      return (
+        <div className="flex size-full justify-center items-center h-screen p-8">
+          <Alert variant="destructive" className="w-fit max-w-[40rem] text-wrap truncate">
+            <OctagonAlert className="size-4" />
+            <AlertTitle>Link de partilha revogado</AlertTitle>
+            <AlertDescription>
+              Este link de partilha já não é válido. O proprietário revogou o acesso a este projeto.
+            </AlertDescription>
+          </Alert>
+        </div>
+      );
+    }
+
+    // 404 = link inválido / não existe
+    if (status === 404) {
+      return (
+        <div className="flex size-full justify-center items-center h-screen p-8">
+          <Alert variant="destructive" className="w-fit max-w-[40rem] text-wrap truncate">
+            <OctagonAlert className="size-4" />
+            <AlertTitle>Link de partilha inválido</AlertTitle>
+            <AlertDescription>
+              Este link não existe ou o projeto já não está disponível.
+            </AlertDescription>
+          </Alert>
+        </div>
+      );
+    }
+
+    // fallback para outros erros quando há shareId
     return (
       <div className="flex size-full justify-center items-center h-screen p-8">
-        <Alert
-          variant="destructive"
-          className="w-fit max-w-[40rem] text-wrap truncate"
-        >
+        <Alert variant="destructive" className="w-fit max-w-[40rem] text-wrap truncate">
           <OctagonAlert className="size-4" />
-          <AlertTitle>Link de partilha revogado</AlertTitle>
+          <AlertTitle>Erro ao abrir projeto</AlertTitle>
           <AlertDescription>
-            Este link de partilha já não é válido. O proprietário revogou o
-              acesso a este projeto.
+            Ocorreu um erro ao abrir este projeto partilhado. Tenta novamente.
           </AlertDescription>
         </Alert>
       </div>
@@ -375,17 +474,11 @@ if (project.isError) {
   }
 
   // comportamento normal para projetos do próprio utilizador
-  const { title, description } = getErrorMessage(
-    "project-load",
-    project.error,
-  );
+  const { title, description } = getErrorMessage("project-load", project.error);
 
   return (
     <div className="flex size-full justify-center items-center h-screen p-8">
-      <Alert
-        variant="destructive"
-        className="w-fit max-w-[40rem] text-wrap truncate"
-      >
+      <Alert variant="destructive" className="w-fit max-w-[40rem] text-wrap truncate">
         <OctagonAlert className="size-4" />
         <AlertTitle>{title}</AlertTitle>
         <AlertDescription>{description}</AlertDescription>
