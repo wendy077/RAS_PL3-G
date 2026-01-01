@@ -537,7 +537,7 @@ export const useAssistantSuggest = (
   const projectKey = ["project", uid, pid, token, ownerId, shareId];
 
   return useMutation({
-    mutationFn: (args: { message: string; currentTools: ProjectToolResponse[]; projectVersion: number }) =>
+      mutationFn: (args: { message: string; currentTools: ProjectToolResponse[]; projectVersion: number; imgId?: string }) =>
       assistantSuggest({
         uid: shareId ? (ownerId ?? uid) : uid,
         pid,
@@ -547,6 +547,7 @@ export const useAssistantSuggest = (
         message: args.message,
         currentTools: args.currentTools,
         projectVersion: args.projectVersion,
+        imgId: args.imgId,
       }),
 
     onSuccess: (resp) => {

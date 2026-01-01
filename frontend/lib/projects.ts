@@ -981,6 +981,7 @@ export const assistantSuggest = async (params: {
   ownerId?: string;
   shareId?: string;
   projectVersion: number;
+  imgId?: string;
 }) => {
   const {
     uid,
@@ -991,13 +992,14 @@ export const assistantSuggest = async (params: {
     ownerId,
     shareId,
     projectVersion,
+    imgId,
   } = params;
 
   const query = buildQuery({ ownerId, shareId });
 
-  const resp = await api.post<{ suggestions: AssistantSuggestion[] }>(
+  const resp = await api.post<{ suggestions: AssistantSuggestion[]; features?: any }>(
     `/projects/${uid}/${pid}/assistant/suggest${query}`,
-    { message, currentTools },
+    { message, currentTools, imgId },
     {
       headers: {
         Authorization: `Bearer ${token}`,

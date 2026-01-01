@@ -34,6 +34,7 @@ export function AiAssistantDialog(props: {
   shareId?: string;
   projectVersion: number;
   currentTools: ProjectToolResponse[];
+  currentImgId?: string
 }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
@@ -67,6 +68,7 @@ export function AiAssistantDialog(props: {
         message: m,
         currentTools: props.currentTools,
         projectVersion: props.projectVersion,
+        imgId: props.currentImgId, 
       },
       {
         onSuccess: (resp) => {

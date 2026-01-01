@@ -30,6 +30,7 @@ const Preview = require("../controllers/preview");
 const jwt = require("jsonwebtoken");
 const { getCallerId } = require("../utils/caller");
 const { ensureEditorSlot, releaseEditorSlot } = require("../utils/presence");
+const { extractImageFeatures } = require("../utils/imageFeatures");
 
 const {
   get_image_docker,
@@ -1673,24 +1674,38 @@ function normalizeText(s) {
     .replace(/\p{Diacritic}/gu, "");
 }
 
-function buildSuggestions(message, currentTools) {
+function clamp(n, a, b) {
+  return Math.max(a, Math.min(b, n));
+}
+
+function buildSuggestions(message, currentTools, features) {
   const txt = normalizeText(message);
 
   // helpers
   const has = (...words) => words.some((w) => txt.includes(normalizeText(w)));
 
-  // recipes (tools + params) — usa só procedures que já existem 
+  // features (fallbacks seguros)
+  const mean = typeof features?.meanBrightness === "number" ? features.meanBrightness : 128; // 0..255
+  const ctr = typeof features?.contrast === "number" ? features.contrast : 25;              // ~0..100
+
+  // intensidades adaptativas
+  const brighten = clamp(mean < 90 ? 1.25 : mean < 115 ? 1.18 : mean < 140 ? 1.10 : 1.06, 1.05, 1.30);
+  const darken   = clamp(mean > 185 ? 0.78 : mean > 165 ? 0.84 : mean > 145 ? 0.90 : 0.94, 0.70, 0.98);
+
+  // se a imagem já tiver muito contraste (ctr alto) não puxar tanto
+  const boostContrast = clamp(ctr < 18 ? 1.28 : ctr < 26 ? 1.18 : ctr < 34 ? 1.12 : 1.06, 1.05, 1.35);
+
   const S = [];
 
   // 1) Preto & Branco
   if (has("preto", "branco", "pb", "p&b", "black and white", "monocrom")) {
     S.push({
       name: "Preto & Branco",
-      description: "Remove cor e aumenta contraste para um look clássico.",
+      description: "Remove cor e aumenta contraste para um look clássico (ajustado à imagem).",
       tools: [
         { procedure: "saturation", params: { saturationFactor: 0 } },
-        { procedure: "contrast", params: { contrastFactor: 1.25 } },
-        { procedure: "brightness", params: { brightness: 1.05 } },
+        { procedure: "contrast", params: { contrastFactor: clamp(boostContrast, 1.10, 1.35) } },
+        { procedure: "brightness", params: { brightness: mean < 110 ? 1.10 : 1.04 } },
       ],
     });
   }
@@ -1699,11 +1714,11 @@ function buildSuggestions(message, currentTools) {
   if (has("vintage", "retro", "filme", "analog", "nostalg")) {
     S.push({
       name: "Vintage Suave",
-      description: "Contraste suave, tons mais quentes e leve dessaturação.",
+      description: "Contraste suave, leve dessaturação e brilho calibrado ao estado atual.",
       tools: [
-        { procedure: "contrast", params: { contrastFactor: 1.12 } },
+        { procedure: "contrast", params: { contrastFactor: clamp(boostContrast - 0.06, 1.06, 1.20) } },
         { procedure: "saturation", params: { saturationFactor: 0.88 } },
-        { procedure: "brightness", params: { brightness: 1.06 } },
+        { procedure: "brightness", params: { brightness: mean < 115 ? 1.10 : 1.04 } },
       ],
     });
   }
@@ -1712,11 +1727,11 @@ function buildSuggestions(message, currentTools) {
   if (has("pop", "mais cor", "vibrante", "satur", "vivo")) {
     S.push({
       name: "Pop (Mais cor)",
-      description: "Aumenta saturação e contraste para cores mais vivas.",
+      description: "Aumenta saturação e contraste sem rebentar highlights (ajustado à imagem).",
       tools: [
-        { procedure: "saturation", params: { saturationFactor: 1.45 } },
-        { procedure: "contrast", params: { contrastFactor: 1.18 } },
-        { procedure: "brightness", params: { brightness: 1.02 } },
+        { procedure: "saturation", params: { saturationFactor: mean > 170 ? 1.35 : 1.45 } },
+        { procedure: "contrast", params: { contrastFactor: clamp(boostContrast, 1.10, 1.25) } },
+        { procedure: "brightness", params: { brightness: mean < 110 ? 1.08 : 1.02 } },
       ],
     });
   }
@@ -1725,55 +1740,52 @@ function buildSuggestions(message, currentTools) {
   if (has("mais claro", "clarear", "brilho", "mais luz")) {
     S.push({
       name: "Iluminar",
-      description: "Aumenta o brilho de forma moderada.",
-      tools: [{ procedure: "brightness", params: { brightness: 1.18 } }],
-    });
-  }
-  if (has("mais escuro", "escurecer", "menos luz")) {
-    S.push({
-      name: "Escurecer",
-      description: "Reduz o brilho de forma moderada.",
-      tools: [{ procedure: "brightness", params: { brightness: 0.88 } }],
+      description: `Aumenta o brilho (calibrado: brilho médio ~${Math.round(mean)}).`,
+      tools: [{ procedure: "brightness", params: { brightness: brighten } }],
     });
   }
 
-  // fallback: se não apanhou keywords, devolve sugestões gerais
+  if (has("mais escuro", "escurecer", "menos luz")) {
+    S.push({
+      name: "Escurecer",
+      description: `Reduz o brilho (calibrado: brilho médio ~${Math.round(mean)}).`,
+      tools: [{ procedure: "brightness", params: { brightness: darken } }],
+    });
+  }
+
+  // fallback: se não apanhou keywords, devolve sugestões gerais (também adaptadas)
   if (S.length === 0) {
     S.push(
       {
         name: "Contraste Suave",
-        description: "Leve aumento de contraste para dar mais definição.",
-        tools: [{ procedure: "contrast", params: { contrastFactor: 1.12 } }],
+        description: "Leve aumento de contraste (ajustado à imagem).",
+        tools: [{ procedure: "contrast", params: { contrastFactor: clamp(boostContrast - 0.08, 1.06, 1.18) } }],
       },
       {
         name: "Realce de cor",
         description: "Aumenta ligeiramente a saturação.",
-        tools: [{ procedure: "saturation", params: { saturationFactor: 1.18 } }],
+        tools: [{ procedure: "saturation", params: { saturationFactor: mean > 170 ? 1.12 : 1.18 } }],
       },
       {
         name: "Luz & Cor",
-        description: "Equilíbrio simples entre brilho, contraste e cor.",
+        description: "Equilíbrio entre brilho, contraste e cor (ajustado à imagem).",
         tools: [
-          { procedure: "brightness", params: { brightness: 1.06 } },
-          { procedure: "contrast", params: { contrastFactor: 1.10 } },
-          { procedure: "saturation", params: { saturationFactor: 1.10 } },
+          { procedure: "brightness", params: { brightness: mean < 110 ? 1.10 : 1.06 } },
+          { procedure: "contrast", params: { contrastFactor: clamp(boostContrast - 0.10, 1.06, 1.16) } },
+          { procedure: "saturation", params: { saturationFactor: mean > 170 ? 1.06 : 1.10 } },
         ],
       },
     );
   }
 
-  // RNF66 “≥2 tools” só é requisito para criar preset;
-  // aqui o assistente pode sugerir 1 tool (mas podemos forçar >=2 ao por padding).
-  // Vou padronizar para >=2 para ficar alinhado com a filosofia de "recipe".
+  // padding para >=2 tools
   for (const sug of S) {
     if (Array.isArray(sug.tools) && sug.tools.length === 1) {
-      // adiciona uma tool neutra/leve para cumprir "recipe >= 2"
       sug.tools.push({ procedure: "contrast", params: { contrastFactor: 1.05 } });
     }
   }
 
-  // evita devolver uma sugestão “igual ao que já está”
-  // (muito básico: compara JSON string)
+  // evita devolver sugestão igual ao estado atual
   const currentStr = JSON.stringify(currentTools || []);
   return S.filter((s) => JSON.stringify(s.tools) !== currentStr).slice(0, 5);
 }
@@ -1788,19 +1800,36 @@ router.post(
     try {
       const ownerId = req.params.user;
 
-      const { message, currentTools } = req.body || {};
+      const { message, currentTools, imgId } = req.body || {};
       if (!message || String(message).trim().length < 2) {
         return res.status(400).jsonp("Message is required");
       }
 
-      // podes usar project.tools como fonte de verdade se quiseres
-      // const project = await Project.getOne(ownerId, req.params.project);
+      const project = await Project.getOne(ownerId, req.params.project);
+      if (!project) return res.status(404).jsonp("Project not found");
+      if (!project.imgs || project.imgs.length === 0) {
+        return res.status(400).jsonp("Project has no images");
+      }
 
-      const suggestions = buildSuggestions(message, currentTools);
+      // 1) escolher imagem “corrente”
+      const img =
+        (imgId && project.imgs.find((i) => String(i._id) === String(imgId))) ||
+        project.imgs[0];
 
-      return res.status(200).jsonp({
-        suggestions,
-      });
+      // 2) obter url do minio e fazer download para buffer
+      const resp = await get_image_docker(ownerId, req.params.project, "src", img.og_img_key);
+      const url = resp.data.url;
+
+      const imgResp = await axios.get(url, { responseType: "arraybuffer" });
+      const buffer = Buffer.from(imgResp.data);
+
+      // 3) extrair features
+      const features = await extractImageFeatures(buffer);
+
+      // 4) sugestões agora dependem do conteúdo da imagem
+      const suggestions = buildSuggestions(message, currentTools, features);
+
+      return res.status(200).jsonp({ suggestions, features });
     } catch (err) {
       console.error("assistant/suggest error:", err);
       return res.status(500).jsonp("Error generating suggestions");

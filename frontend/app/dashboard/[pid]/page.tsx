@@ -666,6 +666,7 @@ const handleCancel = () => {
                     shareId={shareId}
                     projectVersion={project.data.version}
                     currentTools={project.data.tools}
+                    currentImgId={currentImage?._id}   
                   />
 
                   <PresetsDialog />
