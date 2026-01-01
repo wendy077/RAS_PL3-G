@@ -131,7 +131,7 @@ export function AiAssistantDialog(props: {
         <Button type="button" variant="outline">IA na edição</Button>
       </DialogTrigger>
 
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Assistente de edição</DialogTitle>
         </DialogHeader>
