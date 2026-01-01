@@ -12,9 +12,19 @@ import {
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { useAssistantSuggest, useReorderProjectTools } from "@/lib/mutations/projects";
+import {
+  useAssistantSuggest,
+  useReorderProjectTools,
+} from "@/lib/mutations/projects";
 import type { ProjectToolResponse } from "@/lib/projects";
 import { getErrorMessage } from "@/lib/error-messages";
+import { AiSuggestionEditor } from "@/components/assistant/ai-suggestion-editor";
+
+export type Suggestion = {
+  name: string;
+  description: string;
+  tools: ProjectToolResponse[];
+};
 
 export function AiAssistantDialog(props: {
   uid: string;
@@ -45,9 +55,8 @@ export function AiAssistantDialog(props: {
     props.shareId,
   );
 
-  const [suggestions, setSuggestions] = useState<
-    Array<{ name: string; description: string; tools: ProjectToolResponse[] }>
-  >([]);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [editing, setEditing] = useState<Suggestion | null>(null);
 
   const onSend = () => {
     const m = message.trim();
@@ -66,10 +75,10 @@ export function AiAssistantDialog(props: {
               name: s.name,
               description: s.description,
               tools: (s.tools ?? []).map((t, i) => ({
-                _id: `tmp-${i}`, // placeholder (server ignora _id no reorder)
+                _id: `tmp-${i}`,
                 position: i,
                 procedure: t.procedure,
-                params: t.params,
+                params: structuredClone(t.params ?? {}),
               })),
             })),
           );
@@ -82,13 +91,12 @@ export function AiAssistantDialog(props: {
     );
   };
 
-  const onApplySuggestion = (tools: ProjectToolResponse[]) => {
-  
-    // remover _id e garantir posições certinhas
-    const toolsNoId = tools.map(({ _id, ...rest }, i) => ({
-    ...rest,
-    position: i,
-  }));
+  const onApplySuggestion = (s: Suggestion) => {
+    const toolsNoId = s.tools.map(({ _id, ...rest }, i) => ({
+      ...rest,
+      position: i,
+      params: rest.params ?? {},
+    }));
 
     reorder.mutate(
       { tools: toolsNoId as any, projectVersion: props.projectVersion },
@@ -98,6 +106,7 @@ export function AiAssistantDialog(props: {
             title: "Sugestão aplicada",
             description: "A sequência de ferramentas foi atualizada.",
           });
+          setEditing(null);
           setOpen(false);
         },
         onError: (err) => {
@@ -109,9 +118,12 @@ export function AiAssistantDialog(props: {
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(v) => {
+      setOpen(v);
+      if (!v) setEditing(null);
+    }}>
       <DialogTrigger asChild>
-        <Button variant="outline">IA na edição</Button>
+        <Button type="button" variant="outline">IA na edição</Button>
       </DialogTrigger>
 
       <DialogContent className="max-w-2xl">
@@ -124,42 +136,81 @@ export function AiAssistantDialog(props: {
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             placeholder='Ex.: "quero um look vintage"'
-            onKeyDown={(e) => {
-              if (e.key === "Enter") onSend();
-            }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  onSend();
+                }
+              }}
             disabled={suggest.isPending}
           />
-          <Button onClick={onSend} disabled={suggest.isPending}>
-            {suggest.isPending ? "A sugerir..." : "Enviar"}
-          </Button>
+        <Button type="button" onClick={onSend} disabled={suggest.isPending}>
+          {suggest.isPending ? "A sugerir..." : "Enviar"}
+        </Button>
         </div>
 
-        <div className="flex flex-col gap-3 mt-2">
-          {suggestions.map((s, idx) => (
-            <Card key={idx} className="p-3 flex items-start justify-between gap-3">
+        {/* Editor (quando estamos a editar) */}
+        {editing && (
+          <Card className="p-3 mt-2">
+            <div className="flex items-center justify-between gap-2 mb-3">
               <div className="min-w-0">
-                <div className="font-semibold truncate">{s.name}</div>
-                <div className="text-sm text-muted-foreground">{s.description}</div>
-                <div className="text-xs text-muted-foreground mt-2">
-                  Tools: {s.tools.map((t) => t.procedure).join(" → ")}
+                <div className="font-semibold truncate">{editing.name}</div>
+                <div className="text-sm text-muted-foreground">
+                  {editing.description}
                 </div>
               </div>
-              <Button
-                onClick={() => onApplySuggestion(s.tools)}
-                disabled={reorder.isPending}
-              >
+
+            <Button type="button" variant="outline" onClick={() => setEditing(null)}>
+              Voltar
+            </Button>
+            </div>
+
+            <AiSuggestionEditor
+              suggestion={editing}
+              onChange={setEditing}
+              onApply={onApplySuggestion}
+            />
+          </Card>
+        )}
+
+        {/* Lista só quando não estamos a editar */}
+        {!editing && (
+          <div className="flex flex-col gap-3 mt-2">
+            {suggestions.map((s, idx) => (
+              <Card key={idx} className="p-3 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-semibold truncate">{s.name}</div>
+                  <div className="text-sm text-muted-foreground">{s.description}</div>
+                  <div className="text-xs text-muted-foreground mt-2">
+                    Tools: {s.tools.map((t) => t.procedure).join(" → ")}
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setEditing(structuredClone(s))}
+                    disabled={reorder.isPending}
+                  >
+                    Editar
+                  </Button>
+
+              <Button type="button" onClick={() => onApplySuggestion(s)}>
                 Aplicar
               </Button>
-            </Card>
-          ))}
+                </div>
+              </Card>
+            ))}
 
-          {suggestions.length === 0 && (
-            <div className="text-sm text-muted-foreground">
-              Escreve o que pretendes (ex.: “mais cor”, “preto e branco”, “vintage”)
-              para receber sugestões.
-            </div>
-          )}
-        </div>
+            {suggestions.length === 0 && (
+              <div className="text-sm text-muted-foreground">
+                Escreve o que pretendes (ex.: “mais cor”, “preto e branco”, “vintage”)
+                para receber sugestões.
+              </div>
+            )}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
