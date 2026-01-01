@@ -37,12 +37,29 @@ export interface SaturationToolParams {
   saturationFactor: number; // 0.0 - 2.0 (1.0 normal image)
 }
 
+export type ExpandMode = "reflect" | "edge" | "solid" | "generative";
+
 export type ExpandAiParams = {
+  // UI atual
+  percent?: number; // 1..200
+
   top: number;
   right: number;
   bottom: number;
   left: number;
-  mode?: "inpaint"; // podes deixar só inpaint para simplificar
+
+  // modos
+  mode?: ExpandMode;
+
+  // solid only
+  color?: string;
+
+  // RF40 generative
+  prompt?: string;
+  negativePrompt?: string;
+  seed?: number;
+  steps?: number;
+  guidance?: number;
 };
 
 export type ToolParams =

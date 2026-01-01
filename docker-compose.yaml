@@ -422,6 +422,23 @@ services:
     volumes:
       - image_data:/app/images
 
+  generative-mock:
+    build: ./generative-mock
+    container_name: picturas-generative-mock
+    ports:
+      - "7860:7860"
+    networks:
+      - elk
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:7860/sdapi/v1/samplers').read()\""
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
   expand_ai_tool:
     build:
       context: ./Tools
@@ -432,6 +449,8 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+      generative-mock:
+        condition: service_healthy
     restart: on-failure
     volumes:
       - image_data:/app/images
@@ -440,6 +459,7 @@ services:
       - RABBITMQ_PORT=5672
       - RABBITMQ_USER=user
       - RABBITMQ_PASS=password
+      - GEN_EXPAND_URL=http://generative-mock:7860
       
   watermark_tool_ms:
     image: prcsousa/picturas-watermark-tool-ms:latest
