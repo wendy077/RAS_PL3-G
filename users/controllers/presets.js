@@ -41,3 +41,7 @@ module.exports.getByShareId = async (shareId) => {
   const p = await Preset.findOne({ "share.id": shareId, "share.revoked": false }).exec();
   return p ? p.toJSON() : null;
 };
+
+module.exports.countByUser = async (userId) => {
+  return Preset.countDocuments({ owner_id: userId }).exec();
+};

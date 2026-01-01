@@ -50,7 +50,20 @@ export function PresetsDialog() {
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const canCreate = project.tools.length >= 2; // RNF66
+  const userCount = data?.userPresets?.length ?? 0;
+  const maxReached = userCount >= 4;
+
+  const toolCount = project.tools?.length ?? 0;
+  const hasMinTools = toolCount >= 2;
+  const canCreate = hasMinTools && !maxReached;
+
+  const createDisabled = createPreset.isPending || !hasMinTools || maxReached;
+
+  const createPlaceholder = !hasMinTools
+    ? "Seleciona ≥2 ferramentas para criar"
+    : maxReached
+      ? "Limite de 4 presets atingido"
+      : "Nome do preset…";
 
   const currentToolsForPreset: PresetTool[] = useMemo(() => {
     return project.tools.map((t) => ({ procedure: t.procedure, params: t.params }));
@@ -76,14 +89,23 @@ export function PresetsDialog() {
   }
 
   function handleCreate() {
-    if (!canCreate) {
-      toast({
-        title: "Preset indisponível",
-        description: "Seleciona pelo menos 2 ferramentas antes de guardar um preset.",
-        variant: "destructive",
-      });
-      return;
-    }
+      if (maxReached) {
+        toast({
+          title: "Limite atingido",
+          description: "Já tens 4 presets guardados. Elimina um para poderes criar outro.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!hasMinTools) {
+        toast({
+          title: "Preset indisponível",
+          description: "Seleciona pelo menos 2 ferramentas antes de guardar um preset.",
+          variant: "destructive",
+        });
+        return;
+      }
 
     const trimmed = name.trim();
     if (!trimmed) {
@@ -199,12 +221,12 @@ export function PresetsDialog() {
 
         <div className="flex gap-2">
           <Input
-            placeholder={canCreate ? "Nome do preset…" : "Seleciona ≥2 ferramentas para criar"}
+            placeholder={createPlaceholder}
             value={name}
-            disabled={!canCreate || createPreset.isPending}
+            disabled={createPreset.isPending || maxReached}  // deixar bloquear só por pending/limite
             onChange={(e) => setName(e.target.value)}
           />
-          <Button onClick={handleCreate} disabled={!canCreate || createPreset.isPending}>
+          <Button onClick={handleCreate} disabled={createDisabled}>
             Guardar
           </Button>
         </div>
@@ -220,42 +242,15 @@ export function PresetsDialog() {
             {!isLoading && (data?.defaultPresets?.length ?? 0) === 0 && (
               <p className="text-sm text-muted-foreground">Sem presets predefinidos.</p>
             )}
-        {data?.userPresets?.map((p) => (
-        <div key={p._id} className="flex items-center justify-between border rounded-md p-2 gap-2">
-            <div className="text-sm flex-1 truncate">{p.name}</div>
-
-            <div className="flex items-center gap-2">
-            <Button size="sm" onClick={() => applyPreset(p.tools)}>
+          {data?.defaultPresets?.map((p) => (
+            <div key={p.id} className="flex items-center justify-between border rounded-md p-2 gap-2">
+              <div className="text-sm flex-1 truncate">{p.name}</div>
+              <Button size="sm" onClick={() => applyPreset(p.tools)}>
                 Aplicar
-            </Button>
-
-            <Button
-                size="sm"
-                variant="outline"
-                onClick={() => openEdit(p._id, p.name)}
-            >
-                Editar
-            </Button>
-
-            <Button
-                size="sm"
-                variant="outline"
-                onClick={() => copyShareLink(p._id)}
-                disabled={sharePreset.isPending}
-            >
-                Partilhar
-            </Button>
-
-            <Button
-                size="sm"
-                variant="destructive"
-                onClick={() => setDeletingId(p._id)}
-            >
-                Apagar
-            </Button>
+              </Button>
             </div>
-        </div>
-        ))}
+          ))}
+
           </TabsContent>
 
           <TabsContent value="mine" className="space-y-2 mt-3">
@@ -264,11 +259,19 @@ export function PresetsDialog() {
               <p className="text-sm text-muted-foreground">Ainda não tens presets guardados.</p>
             )}
             {data?.userPresets?.map((p) => (
-              <div key={p._id} className="flex items-center justify-between border rounded-md p-2">
-                <div className="text-sm">{p.name}</div>
-                <Button size="sm" onClick={() => applyPreset(p.tools)}>
-                  Aplicar
-                </Button>
+              <div key={p._id} className="flex items-center justify-between border rounded-md p-2 gap-2">
+                <div className="text-sm flex-1 truncate">{p.name}</div>
+
+                <div className="flex items-center gap-2">
+                  <Button size="sm" onClick={() => applyPreset(p.tools)}>Aplicar</Button>
+                  <Button size="sm" variant="outline" onClick={() => openEdit(p._id, p.name)}>Editar</Button>
+                  <Button size="sm" variant="outline" onClick={() => copyShareLink(p._id)} disabled={sharePreset.isPending}>
+                    Partilhar
+                  </Button>
+                  <Button size="sm" variant="destructive" onClick={() => setDeletingId(p._id)}>
+                    Apagar
+                  </Button>
+                </div>
               </div>
             ))}
           </TabsContent>

@@ -117,6 +117,12 @@ router.post("/users/:user/presets", requireAuth, async function (req, res) {
       }
     }
 
+    const MAX_PRESETS = 4;
+
+    const count = await Presets.countByUser(req.params.user);
+    if (count >= MAX_PRESETS) {
+      return res.status(409).jsonp(`Preset limit (${MAX_PRESETS}) reached.`);
+}
     const created = await Presets.create(req.params.user, {
       name: name.trim(),
       tools: tools.map((t) => ({ procedure: t.procedure, params: t.params })),
