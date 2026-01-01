@@ -24,6 +24,8 @@ export type Suggestion = {
   name: string;
   description: string;
   tools: ProjectToolResponse[];
+  previewUrl?: string | null;
+
 };
 
 export function AiAssistantDialog(props: {
@@ -76,6 +78,7 @@ export function AiAssistantDialog(props: {
             (resp.suggestions ?? []).map((s) => ({
               name: s.name,
               description: s.description,
+              previewUrl: s.previewUrl ?? null,
               tools: (s.tools ?? []).map((t, i) => ({
                 _id: `tmp-${i}`,
                 position: i,
@@ -183,6 +186,16 @@ export function AiAssistantDialog(props: {
                 <div className="min-w-0">
                   <div className="font-semibold truncate">{s.name}</div>
                   <div className="text-sm text-muted-foreground">{s.description}</div>
+
+                {s.previewUrl && (
+                    <div className="mt-2">
+                      <img
+                        src={s.previewUrl}
+                        alt={`Preview ${s.name}`}
+                        className="w-full max-h-56 object-contain rounded-md border"
+                      />
+                    </div>
+                  )}
                   <div className="text-xs text-muted-foreground mt-2">
                     Tools: {s.tools.map((t) => t.procedure).join(" → ")}
                   </div>

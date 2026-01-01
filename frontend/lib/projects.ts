@@ -68,6 +68,8 @@ export type AssistantSuggestion = {
     procedure: ToolNames;
     params: ToolParams;
   }>;
+  previewUrl?: string | null;
+ previewKey?: string | null;
 };
 
 export const listProjectShareLinks = async (

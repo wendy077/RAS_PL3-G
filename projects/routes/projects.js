@@ -1,6 +1,7 @@
 var express = require("express");
 var router = express.Router();
 const axios = require("axios");
+const sharp = require("sharp");
 
 const multer = require("multer");
 const FormData = require("form-data");
@@ -1790,6 +1791,64 @@ function buildSuggestions(message, currentTools, features) {
   return S.filter((s) => JSON.stringify(s.tools) !== currentStr).slice(0, 5);
 }
 
+// ================== AI ASSISTANT PREVIEW (RF61) ==================
+
+// aplica tools não-IA (brightness/contrast/saturation) localmente com sharp
+// para conseguir uma imagem preview por sugestão sem mexer em RabbitMQ/pipeline
+async function applyToolsPreview(inputBuffer, tools) {
+  let img = sharp(inputBuffer, { failOnError: false });
+
+  for (const t of tools || []) {
+    const proc = t?.procedure;
+    const p = t?.params || {};
+
+    if (proc === "brightness") {
+      const b = Number(p.brightness);
+      if (Number.isFinite(b)) {
+        img = img.modulate({ brightness: b });
+      }
+    }
+
+    if (proc === "saturation") {
+      const s = Number(p.saturationFactor);
+      if (Number.isFinite(s)) {
+        img = img.modulate({ saturation: s });
+      }
+    }
+
+    if (proc === "contrast") {
+      // sharp não tem "contrastFactor" direto; fazemos linear(a,b):
+      // out = a*in + b ; para contrastFactor c, usa b = 128*(1-c)
+      const c = Number(p.contrastFactor);
+      if (Number.isFinite(c)) {
+        const a = c;
+        const b = 128 * (1 - c);
+        img = img.linear(a, b);
+      }
+    }
+  }
+
+  return await img.png().toBuffer();
+}
+
+async function uploadAssistantPreview(ownerId, projectId, outBuffer) {
+  const data = new FormData();
+  const fname = `assistant-preview-${uuidv4()}.png`;
+  data.append("file", outBuffer, {
+    filename: fname,
+    contentType: "image/png",
+  });
+
+  // reusa o bucket "preview" já existente
+  const resp = await post_image(ownerId, projectId, "preview", data);
+  const keyParts = resp.data.data.imageKey.split("/");
+  const img_key = keyParts[keyParts.length - 1];
+
+  const urlResp = await get_image_host(ownerId, projectId, "preview", img_key);
+  return { img_key, url: urlResp.data.url, file_name: fname };
+}
+
+
 router.post(
   "/:user/:project/assistant/suggest",
   checkSharePermission,
@@ -1829,7 +1888,24 @@ router.post(
       // 4) sugestões agora dependem do conteúdo da imagem
       const suggestions = buildSuggestions(message, currentTools, features);
 
-      return res.status(200).jsonp({ suggestions, features });
+      
+      // 5) RF61: gerar preview visual por sugestão (localmente, tools não-IA)
+      const suggestionsWithPreview = [];
+      for (const s of suggestions) {
+        try {
+          const out = await applyToolsPreview(buffer, s.tools);
+          const up = await uploadAssistantPreview(ownerId, req.params.project, out);
+          suggestionsWithPreview.push({
+            ...s,
+            previewUrl: up.url,
+            previewKey: up.img_key, // útil se depois quiseres limpar
+          });
+        } catch (e) {
+          // se falhar, não bloqueia a sugestão; devolve sem preview
+          suggestionsWithPreview.push({ ...s, previewUrl: null, previewKey: null });
+        }
+      }
+      return res.status(200).jsonp({ suggestions: suggestionsWithPreview, features });
     } catch (err) {
       console.error("assistant/suggest error:", err);
       return res.status(500).jsonp("Error generating suggestions");
