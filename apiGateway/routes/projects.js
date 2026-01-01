@@ -739,6 +739,34 @@ router.delete(
   }
 );
 
+// limpar tools + resultados + previews
+router.post("/:user/:project/clear", auth.checkToken, (req, res) => {
+  const ownerId = req.query.owner || req.params.user;
+  const callerId = req.authUserId || req.params.user;
+
+  axios
+    .post(
+      projectsURL + `${ownerId}/${req.params.project}/clear`,
+      {},
+      {
+        httpsAgent,
+        params: req.query.share ? { share: req.query.share } : undefined,
+        headers: {
+          Authorization: req.headers["authorization"],
+          "X-Project-Version": req.headers["x-project-version"],
+          "X-Caller-Id": callerId,
+        },
+      },
+    )
+    .then((resp) => {
+      if (resp.headers?.["x-project-version"]) {
+        res.set("X-Project-Version", resp.headers["x-project-version"]);
+      }
+      return res.sendStatus(204);
+    })
+    .catch((err) => forwardAxiosError(res, err, "Error clearing project"));
+});
+
 // ================== AI ASSISTANT ==================
 
 // sugestões do assistente de IA para um projeto

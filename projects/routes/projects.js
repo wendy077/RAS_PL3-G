@@ -993,11 +993,15 @@ router.post(
             const og_uri = `./images/users/${req.params.user}/projects/${req.params.project}/src/${req.file.originalname}`;
             const new_uri = `./images/users/${req.params.user}/projects/${req.params.project}/out/${req.file.originalname}`;
 
+            const crypto = require("crypto");
+            const sha = crypto.createHash("sha256").update(req.file.buffer).digest("hex");
+
             // Insert new image
             project["imgs"].push({
               og_uri: og_uri,
               new_uri: new_uri,
               og_img_key: og_key,
+              og_sha256: sha,
             });
 
             const updated = await Project.updateIfVersion(
@@ -1592,6 +1596,74 @@ router.delete(
         }
       })
       .catch(() => res.status(501).jsonp(`Error acquiring user's project`));
+  }
+);
+
+// Limpar tools + resultados + previews + counters
+router.post(
+  "/:user/:project/clear",
+  checkSharePermission,
+  requireEditPermission,
+  enforcePresenceLimit,
+  requireProjectVersion,
+  async (req, res) => {
+    const ownerId = req.params.user;
+    const projectId = req.params.project;
+
+    try {
+      const project = await Project.getOne(ownerId, projectId);
+      if (!project) return res.status(404).jsonp("Project not found");
+
+      // 1) apagar resultados (DB + MinIO out)
+      const prev_results = await Result.getAll(ownerId, projectId);
+      for (const r of prev_results) {
+        await delete_image(ownerId, projectId, "out", r.img_key);
+        await Result.delete(r.user_id, r.project_id, r.img_id);
+      }
+
+      // 2) apagar previews (DB + MinIO preview)
+      const prev_preview = await Preview.getAll(ownerId, projectId);
+      for (const p of prev_preview) {
+        await delete_image(ownerId, projectId, "preview", p.img_key);
+        await Preview.delete(p.user_id, p.project_id, p.img_id);
+      }
+
+      // limpar diretórios locais tmp
+      // para evitar lixo em disco caso exista
+      try {
+        const basePath = path.join(__dirname, `/../images/users/${ownerId}/projects/${projectId}`);
+        for (const dir of ["out", "preview"]) {
+          const full = path.join(basePath, dir);
+          if (fs.existsSync(full)) fs.rmSync(full, { recursive: true, force: true });
+        }
+      } catch (_) {}
+
+      // 3) limpar tools + coerência advanced counters
+      project.tools = [];
+      project.pendingAdvancedOps = 0;
+      project.chargedAdvancedTools = 0;
+
+      const updated = await Project.updateIfVersion(
+        ownerId,
+        projectId,
+        project,
+        req.expectedVersion
+      );
+
+      if (!updated) {
+        const fresh = await Project.getOne(ownerId, projectId);
+        return res.status(409).jsonp({
+          message: "Project version conflict",
+          serverVersion: fresh?.version ?? null,
+        });
+      }
+
+      res.set("X-Project-Version", String(updated.version));
+      return res.sendStatus(204);
+    } catch (err) {
+      console.error("Error clearing project:", err);
+      return res.status(500).jsonp("Error clearing project");
+    }
   }
 );
 

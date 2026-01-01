@@ -2,7 +2,7 @@ import { ToolbarButton } from "./toolbar-button";
 import { Slider } from "../ui/slider";
 import { Contrast } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useProjectInfo } from "@/providers/project-provider";
+import { useProjectInfo, useUnsavedChanges } from "@/providers/project-provider";
 import { ContrastToolParams } from "@/lib/tool-types";
 
 export default function ContrastTool({ disabled }: { disabled: boolean }) {
@@ -10,6 +10,7 @@ export default function ContrastTool({ disabled }: { disabled: boolean }) {
   const defaultValue = 1;
   const [value, setValue] = useState<number>(defaultValue);
   const [open, setOpen] = useState<boolean>(false);
+  const { setHasUnsavedChanges } = useUnsavedChanges();
 
   useEffect(() => {
     const contrastTool = project.tools.find((t) => t.procedure === "contrast");
@@ -28,7 +29,10 @@ export default function ContrastTool({ disabled }: { disabled: boolean }) {
           contrastFactor: value,
         },
       }}
-      onDefault={() => setValue(defaultValue)}
+      onDefault={() => {
+        setValue(defaultValue);
+        setHasUnsavedChanges(false);
+      }}
       isDefault={value === defaultValue}
       disabled={disabled}
       icon={Contrast}
@@ -39,7 +43,10 @@ export default function ContrastTool({ disabled }: { disabled: boolean }) {
         max={2}
         step={0.01}
         value={[value]}
-        onValueChange={(v) => setValue(v[0])}
+        onValueChange={(v) => {
+          setValue(v[0]);
+          setHasUnsavedChanges(true);
+        }}
         className="w-full"
       />
       <div className="flex w-full justify-between items-center text-xs text-gray-500 pt-1">

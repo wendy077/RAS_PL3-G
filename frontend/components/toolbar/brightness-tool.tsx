@@ -2,11 +2,13 @@ import { ToolbarButton } from "./toolbar-button";
 import { Slider } from "../ui/slider";
 import { Sun } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useProjectInfo } from "@/providers/project-provider";
+import { useProjectInfo, useUnsavedChanges } from "@/providers/project-provider";
 import { BrightnessToolParams } from "@/lib/tool-types";
 
 export default function BrightnessTool({ disabled }: { disabled: boolean }) {
   const project = useProjectInfo();
+  const { setHasUnsavedChanges } = useUnsavedChanges();
+
   const defaultValue = 1;
   const [value, setValue] = useState<number>(defaultValue);
   const [open, setOpen] = useState<boolean>(false);
@@ -17,7 +19,10 @@ export default function BrightnessTool({ disabled }: { disabled: boolean }) {
     );
     if (brightnessTool) {
       setValue((brightnessTool.params as BrightnessToolParams).brightness);
+    } else {
+      setValue(defaultValue);
     }
+    // aqui NÃO metas setHasUnsavedChanges(false), senão apagas dirty ao abrir o menu
   }, [project.tools, open]);
 
   return (
@@ -30,7 +35,10 @@ export default function BrightnessTool({ disabled }: { disabled: boolean }) {
           brightness: value,
         },
       }}
-      onDefault={() => setValue(defaultValue)}
+      onDefault={() => {
+        setValue(defaultValue);
+        setHasUnsavedChanges(false);
+      }}
       isDefault={value === defaultValue}
       disabled={disabled}
       icon={Sun}
@@ -41,7 +49,10 @@ export default function BrightnessTool({ disabled }: { disabled: boolean }) {
         max={2}
         step={0.01}
         value={[value]}
-        onValueChange={(v) => setValue(v[0])}
+        onValueChange={(v) => {
+          setValue(v[0]);
+          setHasUnsavedChanges(true);
+        }}
         className="w-full"
       />
       <div className="flex w-full justify-between items-center text-xs text-gray-500 pt-1">

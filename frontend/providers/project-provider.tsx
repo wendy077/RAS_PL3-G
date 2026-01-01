@@ -39,14 +39,13 @@ export function ProjectProvider({
     setTools(project.tools);
   }, [project.tools]);
 
-  // limpar o "dirty" quando o Apply terminar com sucesso
-  useEffect(() => {
-    if (preview.waiting === "__APPLY_DONE__") {
-      setHasUnsavedChanges(false);
-      // limpar o sentinel
-      preview.setWaiting("");
-    }
-  }, [preview.waiting, preview]);
+  // só limpar o sentinel do Apply (não mexe no hasUnsavedChanges)
+    useEffect(() => {
+      if (preview.waiting === "__APPLY_DONE__") {
+        preview.setWaiting("");
+      }
+    }, [preview.waiting, preview]);
+
 
   return (
     <ProjectContext.Provider

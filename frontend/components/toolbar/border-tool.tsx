@@ -1,7 +1,7 @@
 import { ToolbarButton } from "./toolbar-button";
 import { Frame } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useProjectInfo } from "@/providers/project-provider";
+import { useProjectInfo, useUnsavedChanges } from "@/providers/project-provider";
 import { BorderToolParams } from "@/lib/tool-types";
 import { hexToRgb, isValidHexColor, rgbToHex } from "@/lib/utils";
 import { Input } from "../ui/input";
@@ -15,13 +15,20 @@ export default function BorderTool({ disabled }: { disabled: boolean }) {
   const [width, setWidth] = useState<number>(defaultWidth);
   const [color, setColor] = useState<string>(defaultColor);
   const [open, setOpen] = useState<boolean>(false);
+  const { setHasUnsavedChanges } = useUnsavedChanges();
 
   function handleColorChange(newColor: string) {
-    if (isValidHexColor(newColor)) setColor(newColor);
+    if (isValidHexColor(newColor)) {
+      setColor(newColor);
+      setHasUnsavedChanges(true);
+    }
   }
 
   function handleWidthChange(newWidth: number) {
-    if (newWidth > 0) setWidth(newWidth);
+    if (newWidth > 0) {
+      setWidth(newWidth);
+      setHasUnsavedChanges(true);
+    }
   }
 
   useEffect(() => {
@@ -49,6 +56,7 @@ export default function BorderTool({ disabled }: { disabled: boolean }) {
       onDefault={() => {
         setWidth(defaultWidth);
         setColor(defaultColor);
+        setHasUnsavedChanges(false);
       }}
       isDefault={width === defaultWidth && color === defaultColor}
       disabled={disabled}
@@ -69,7 +77,13 @@ export default function BorderTool({ disabled }: { disabled: boolean }) {
           </div>
         </div>
         <div className="flex flex-col items-center justify-center gap-2">
-          <HexColorPicker color={color} onChange={setColor} />
+          <HexColorPicker
+            color={color}
+            onChange={(c) => {
+              setColor(c);
+              setHasUnsavedChanges(true);
+            }}
+          />
           <HexColorInput
             color={color}
             onChange={handleColorChange}

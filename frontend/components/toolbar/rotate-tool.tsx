@@ -2,11 +2,12 @@ import { ToolbarButton } from "./toolbar-button";
 import { Slider } from "../ui/slider";
 import { RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useProjectInfo } from "@/providers/project-provider";
+import { useProjectInfo, useUnsavedChanges } from "@/providers/project-provider";
 import { RotateToolParams } from "@/lib/tool-types";
 
 export default function RotateTool({ disabled }: { disabled: boolean }) {
   const project = useProjectInfo();
+  const { setHasUnsavedChanges } = useUnsavedChanges();
   const defaultValue = 0;
   const [value, setValue] = useState<number>(defaultValue);
   const [open, setOpen] = useState<boolean>(false);
@@ -28,7 +29,10 @@ export default function RotateTool({ disabled }: { disabled: boolean }) {
           degrees: value,
         },
       }}
-      onDefault={() => setValue(defaultValue)}
+      onDefault={() => {
+        setValue(defaultValue);
+        setHasUnsavedChanges(false);
+      }}
       isDefault={value === defaultValue}
       disabled={disabled}
       icon={RotateCcw}
@@ -39,7 +43,10 @@ export default function RotateTool({ disabled }: { disabled: boolean }) {
         max={360}
         step={1}
         value={[value]}
-        onValueChange={(v) => setValue(v[0])}
+        onValueChange={(v) => {
+          setValue(v[0]);
+          setHasUnsavedChanges(true);
+        }}
         className="w-full"
       />
       <div className="flex w-full justify-between items-center text-xs text-gray-500 pt-1">

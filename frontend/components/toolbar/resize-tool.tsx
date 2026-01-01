@@ -4,12 +4,13 @@ import { useEffect, useState } from "react";
 import { Label } from "../ui/label";
 import { Input } from "../ui/input";
 import { getImageDimensions } from "@/lib/utils";
-import { useCurrentImage, useProjectInfo } from "@/providers/project-provider";
+import { useCurrentImage, useProjectInfo, useUnsavedChanges } from "@/providers/project-provider";
 import { ResizeToolParams } from "@/lib/tool-types";
 
 export default function ResizeTool({ disabled }: { disabled: boolean }) {
   const project = useProjectInfo();
   const currentImage = useCurrentImage();
+  const { setHasUnsavedChanges } = useUnsavedChanges();
 
   const [defaultWidth, setDefaultWidth] = useState<number>(0);
   const [defaultHeight, setDefaultHeight] = useState<number>(0);
@@ -45,12 +46,8 @@ export default function ResizeTool({ disabled }: { disabled: boolean }) {
   }, [project.tools, defaultHeight, defaultWidth]);
 
   function handleSet({ w, h }: { w?: number; h?: number }) {
-    if (w && w >= 0) {
-      setWidth(w);
-    }
-    if (h && h >= 0) {
-      setHeight(h);
-    }
+    if (typeof w === "number" && w >= 0) setWidth(w);
+    if (typeof h === "number" && h >= 0) setHeight(h);
   }
 
   return (
@@ -67,6 +64,7 @@ export default function ResizeTool({ disabled }: { disabled: boolean }) {
       onDefault={() => {
         setWidth(defaultWidth);
         setHeight(defaultHeight);
+        setHasUnsavedChanges(false);
       }}
       isDefault={width === defaultWidth && height === defaultHeight}
       disabled={disabled}
@@ -81,8 +79,11 @@ export default function ResizeTool({ disabled }: { disabled: boolean }) {
               id="width"
               type="number"
               value={width}
-              onChange={(e) => handleSet({ w: Number(e.target.value) })}
-            />
+              onChange={(e) => {
+                handleSet({ w: Number(e.target.value) });
+                setHasUnsavedChanges(true);
+              }}
+              />
             <span>px</span>
           </div>
         </div>
@@ -93,8 +94,11 @@ export default function ResizeTool({ disabled }: { disabled: boolean }) {
               id="height"
               type="number"
               value={height}
-              onChange={(e) => handleSet({ h: Number(e.target.value) })}
-            />
+              onChange={(e) => {
+                handleSet({ h: Number(e.target.value) });
+                setHasUnsavedChanges(true);
+              }} 
+          />
             <span>px</span>
           </div>
         </div>

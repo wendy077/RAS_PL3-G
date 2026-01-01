@@ -716,7 +716,6 @@ export const clearProjectTools = async ({
   uid,
   pid,
   token,
-  toolIds,
   ownerId,
   shareId,
   projectVersion,
@@ -724,28 +723,28 @@ export const clearProjectTools = async ({
   uid: string;
   pid: string;
   token: string;
-  toolIds: string[];
+  toolIds: string[];   // podes manter no tipo, mas deixa de ser usado
   ownerId: string;
   shareId?: string;
   projectVersion: number;
 }) => {
-  let v = projectVersion;
+  const query = buildQuery({ ownerId, shareId });
 
-  for (const toolId of toolIds) {
-    const newV = await deleteProjectTool({
-      uid,
-      pid,
-      toolId,
-      token,
-      ownerId,
-      shareId,
-      projectVersion: v,
-    });
+  const resp = await api.post(
+    `/projects/${uid}/${pid}/clear${query}`,
+    {},
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-Project-Version": String(projectVersion),
+      },
+    },
+  );
 
-    if (newV) v = Number(newV);
-  }
+  if (resp.status !== 204) throw new Error("Failed to clear project");
 
-  return String(v);
+  // devolve a versão nova
+  return resp.headers?.["x-project-version"] ?? String(projectVersion);
 };
 
 export const downloadProjectResults = async ({

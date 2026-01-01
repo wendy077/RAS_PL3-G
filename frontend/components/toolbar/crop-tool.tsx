@@ -6,9 +6,11 @@ import { Input } from "../ui/input";
 import { useCurrentImage, useProjectInfo } from "@/providers/project-provider";
 import { getImageDimensions } from "@/lib/utils";
 import { CropToolParams } from "@/lib/tool-types";
+import { useUnsavedChanges } from "@/providers/project-provider";
 
 export default function CropTool({ disabled }: { disabled: boolean }) {
   const project = useProjectInfo();
+  const { setHasUnsavedChanges } = useUnsavedChanges();
 
   const defaultValue = 0;
   const [left, setLeft] = useState<number>(defaultValue);
@@ -44,29 +46,11 @@ export default function CropTool({ disabled }: { disabled: boolean }) {
     }
   }, [project.tools, open]);
 
-  function handleSet({
-    l,
-    t,
-    r,
-    b,
-  }: {
-    l?: number;
-    t?: number;
-    r?: number;
-    b?: number;
-  }) {
-    if (l && l + right <= width && l >= 0) {
-      setLeft(l);
-    }
-    if (t && t + bottom <= height && t >= 0) {
-      setTop(t);
-    }
-    if (r && r + left <= width && r >= 0) {
-      setRight(r);
-    }
-    if (b && b + top <= height && b >= 0) {
-      setBottom(b);
-    }
+  function handleSet({ l, t, r, b }: { l?: number; t?: number; r?: number; b?: number }) {
+    if (typeof l === "number" && l + right <= width && l >= 0) setLeft(l);
+    if (typeof t === "number" && t + bottom <= height && t >= 0) setTop(t);
+    if (typeof r === "number" && r + left <= width && r >= 0) setRight(r);
+    if (typeof b === "number" && b + top <= height && b >= 0) setBottom(b);
   }
 
   return (
@@ -87,6 +71,7 @@ export default function CropTool({ disabled }: { disabled: boolean }) {
         setTop(defaultValue);
         setRight(defaultValue);
         setBottom(defaultValue);
+        setHasUnsavedChanges(false);
       }}
       isDefault={
         left === defaultValue &&
@@ -106,7 +91,10 @@ export default function CropTool({ disabled }: { disabled: boolean }) {
               id="left"
               type="number"
               value={left}
-              onChange={(e) => handleSet({ l: Number(e.target.value) })}
+              onChange={(e) => {
+                handleSet({ l: Number(e.target.value) });
+                setHasUnsavedChanges(true);
+              }}
             />
             <span>px</span>
           </div>
@@ -118,7 +106,10 @@ export default function CropTool({ disabled }: { disabled: boolean }) {
               id="top"
               type="number"
               value={top}
-              onChange={(e) => handleSet({ t: Number(e.target.value) })}
+              onChange={(e) => {
+                handleSet({ t: Number(e.target.value) });
+                setHasUnsavedChanges(true);
+              }}
             />
             <span>px</span>
           </div>
@@ -130,7 +121,10 @@ export default function CropTool({ disabled }: { disabled: boolean }) {
               id="right"
               type="number"
               value={right}
-              onChange={(e) => handleSet({ r: Number(e.target.value) })}
+              onChange={(e) => {
+                handleSet({ r: Number(e.target.value) });
+                setHasUnsavedChanges(true);
+              }}
             />
             <span>px</span>
           </div>
@@ -142,7 +136,10 @@ export default function CropTool({ disabled }: { disabled: boolean }) {
               id="bottom"
               type="number"
               value={bottom}
-              onChange={(e) => handleSet({ b: Number(e.target.value) })}
+              onChange={(e) => {
+                handleSet({ b: Number(e.target.value) });
+                setHasUnsavedChanges(true);
+              }}
             />
             <span>px</span>
           </div>

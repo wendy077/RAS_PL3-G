@@ -2,7 +2,7 @@ import { ToolbarButton } from "./toolbar-button";
 import { Slider } from "../ui/slider";
 import { Binary } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useProjectInfo } from "@/providers/project-provider";
+import { useProjectInfo, useUnsavedChanges } from "@/providers/project-provider";
 import { BinarizationToolParams } from "@/lib/tool-types";
 
 export default function BinarizationTool({ disabled }: { disabled: boolean }) {
@@ -10,6 +10,7 @@ export default function BinarizationTool({ disabled }: { disabled: boolean }) {
   const defaultValue = 0;
   const [value, setValue] = useState<number>(defaultValue);
   const [open, setOpen] = useState<boolean>(false);
+  const { setHasUnsavedChanges } = useUnsavedChanges();
 
   useEffect(() => {
     const binarizationTool = project.tools.find(
@@ -30,7 +31,10 @@ export default function BinarizationTool({ disabled }: { disabled: boolean }) {
           threshold: value,
         },
       }}
-      onDefault={() => setValue(defaultValue)}
+      onDefault={() => {
+        setValue(defaultValue);
+        setHasUnsavedChanges(false);
+      }}      
       isDefault={value === defaultValue}
       disabled={disabled}
       icon={Binary}
@@ -41,7 +45,10 @@ export default function BinarizationTool({ disabled }: { disabled: boolean }) {
         max={255}
         step={1}
         value={[value]}
-        onValueChange={(v) => setValue(v[0])}
+        onValueChange={(v) => {
+          setValue(v[0]);
+          setHasUnsavedChanges(true);
+        }}
         className="w-full"
       />
       <div className="flex w-full justify-between items-center text-xs text-gray-500 pt-1">

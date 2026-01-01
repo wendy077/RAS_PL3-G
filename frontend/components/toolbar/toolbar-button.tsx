@@ -158,7 +158,6 @@ export function ToolbarButton({
         onSuccess: () => {
           setWaiting(true);
           preview.setWaiting(tool.procedure);
-          setHasUnsavedChanges(true);
 
           setTimeout(() => setTimedout(true), 10000 * (project.tools.length + 1));
         },
@@ -173,7 +172,7 @@ export function ToolbarButton({
 
   function handleAddTool(runPreview?: boolean) {
     const afterSuccess = () => {
-      setHasUnsavedChanges(true);
+      setHasUnsavedChanges(false); // acabou de guardar
       if (runPreview) handlePreview();
     };
 
