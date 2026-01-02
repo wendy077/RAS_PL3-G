@@ -39,4 +39,12 @@ async function delete_image(user, project, type, img) {
   );
 }
 
-module.exports = { get_image_docker, get_image_host, post_image, delete_image };
+async function copy_image(userId, projectId, fromStage, toStage, fileName) {
+  // usa o mesmo serviço interno (docker network) tal como as outras
+  return axios.post(
+    `${minio_ms}/copy/${userId}/${projectId}/${fromStage}/${toStage}/${fileName}`,
+    {}
+  );
+}
+
+module.exports = { get_image_docker, get_image_host, post_image, delete_image, copy_image };

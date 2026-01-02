@@ -9,11 +9,14 @@ const router = express.Router();
 router.get("/docker/:userId/:projectId/:stage/:imageName", async (req, res) => {
   const { userId, projectId, stage, imageName } = req.params;
 
-  if (!["src", "preview", "out"].includes(stage)) {
-    return res
-      .status(400)
-      .json({ error: "O estágio deve ser src, preview ou out." });
+  const allowedStages = require("../utils/stages");
+
+  if (!allowedStages.includes(stage)) {
+    return res.status(400).json({
+      error: "O estágio deve ser src, preview, preview_cache ou out.",
+    });
   }
+
 
   try {
     const url = await getPresignedUrlDocker(
@@ -31,11 +34,14 @@ router.get("/docker/:userId/:projectId/:stage/:imageName", async (req, res) => {
 router.get("/host/:userId/:projectId/:stage/:imageName", async (req, res) => {
   const { userId, projectId, stage, imageName } = req.params;
 
-  if (!["src", "preview", "out"].includes(stage)) {
-    return res
-      .status(400)
-      .json({ error: "O estágio deve ser src, preview ou out." });
+  const allowedStages = require("../utils/stages");
+
+  if (!allowedStages.includes(stage)) {
+    return res.status(400).json({
+      error: "O estágio deve ser src, preview, preview_cache ou out.",
+    });
   }
+
 
   try {
     const url = await getPresignedUrlHost(userId, projectId, stage, imageName);

@@ -90,6 +90,7 @@ export default function Project({
   const [processingProgress, setProcessingProgress] = useState<number>(0);
   const [processingSteps, setProcessingSteps] = useState<number>(1);
   const [waitingForPreview, setWaitingForPreview] = useState<string>("");
+  const [canEdit, setCanEdit] = useState(true);
 
   // estado para saber se o link de partilha foi revogado
   const [shareRevoked, setShareRevoked] = useState(false);
@@ -122,6 +123,36 @@ export default function Project({
       router.replace(path);
     }
   }, [mode, view, path, router, projectResults.data]);
+
+  useEffect(() => {
+  let cancelled = false;
+
+  async function loadSharePermission() {
+    if (!shareId) {
+      setCanEdit(true);
+      return;
+    }
+
+    try {
+      const info = await resolveShareLink(shareId);
+      // ajusta o campo conforme o teu backend devolve
+      // exemplos comuns: info.permission === "edit" | "read"
+      const perm = (info as any)?.permission ?? (info as any)?.access ?? (info as any)?.mode;
+
+      const editable = perm === "edit" || perm === "write";
+      if (!cancelled) setCanEdit(editable);
+    } catch (err: any) {
+      // se falhar, joga pelo seguro: read-only
+      if (!cancelled) setCanEdit(false);
+    }
+  }
+
+  loadSharePermission();
+
+  return () => {
+    cancelled = true;
+  };
+}, [shareId]);
 
   // link de partilha enquanto o editor está aberto em modo "edit"
   useEffect(() => {
@@ -158,49 +189,50 @@ export default function Project({
   }, [mode, shareId, session.token]);
 
   // heartbeat de presença (editores ativos) enquanto estiver em mode=edit
-useEffect(() => {
-  if (mode !== "edit") return;
+  useEffect(() => {
+    if (mode !== "edit") return;
+    if (!canEdit) return;
 
-  let cancelled = false;
+    let cancelled = false;
 
-  const qs = new URLSearchParams();
-  if (ownerId) qs.set("owner", ownerId);
-  if (shareId) qs.set("share", shareId);
+    const qs = new URLSearchParams();
+    if (ownerId) qs.set("owner", ownerId);
+    if (shareId) qs.set("share", shareId);
 
-const baseUrl = `/api-gateway/projects/${session.user._id}/${pid}/presence?${qs.toString()}`;
+  const baseUrl = `/api-gateway/projects/${session.user._id}/${pid}/presence?${qs.toString()}`;
 
-  async function pingPresence() {
-    try {
-      await fetch(baseUrl, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.token}`,
-        },
-      });
-    } catch {
-      // ignora (o erro “a sério” aparece quando se tenta carregar o projeto)
+    async function pingPresence() {
+      try {
+        await fetch(baseUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session.token}`,
+          },
+        });
+      } catch {
+        // ignora (o erro “a sério” aparece quando se tenta carregar o projeto)
+      }
     }
-  }
 
-  // ping inicial
-  pingPresence();
+    // ping inicial
+    pingPresence();
 
-  // ping periódico
-  const interval = setInterval(() => {
-    if (!cancelled) pingPresence();
-  }, 5000);
+    // ping periódico
+    const interval = setInterval(() => {
+      if (!cancelled) pingPresence();
+    }, 5000);
 
-  return () => {
-    cancelled = true;
-    clearInterval(interval);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
 
-    // libertar slot (best-effort)
-    fetch(baseUrl, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${session.token}` },
-    }).catch(() => {});
-  };
-}, [mode, pid, ownerId, shareId, session.token, session.user._id]);
+      // libertar slot (best-effort)
+      fetch(baseUrl, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${session.token}` },
+      }).catch(() => {});
+    };
+  }, [mode, pid, ownerId, shareId, session.token, session.user._id, canEdit]);
 
 useEffect(() => {
   if (!socket.data) return;
@@ -559,6 +591,9 @@ const handleCancel = () => {
       project={project.data}
       currentImage={currentImage}
       preview={{ waiting: waitingForPreview, setWaiting: setWaitingForPreview }}
+      ownerId={ownerId}
+      shareId={shareId}
+      canEdit={canEdit}
     >
       <div className="flex flex-col h-screen relative">
         {/* Barra de aviso quando o link partilhado é revogado */}
@@ -586,6 +621,7 @@ const handleCancel = () => {
                 <>
                   <Button
                     disabled={
+                      !canEdit ||
                       project.data.tools.length <= 0 ||
                       waitingForPreview !== ""
                     }
@@ -657,6 +693,8 @@ const handleCancel = () => {
                     <Play /> Apply
                   </Button>
 
+          {canEdit && (
+            <>
                   <AiAssistantDialog
                     uid={session.user._id}
                     pid={pid}
@@ -670,7 +708,8 @@ const handleCancel = () => {
 
                   <PresetsDialog />
                   <AddImagesDialog />
-
+          </>
+          )}
                 {/* botão Share só para o owner */}
                 {session.user._id === ownerId && (
                   <ShareProjectDialog 

@@ -26,10 +26,9 @@ async function getUserType(userId) {
 async function ensureEditorSlot({ ownerId, projectId, callerId }) {
   const cutoff = new Date(Date.now() - ACTIVE_WINDOW_MS);
 
-  // limite depende do TIPO DO DONO (criador do projeto)
   const ownerType = await getUserType(ownerId);
 
-  // Premium owner => ilimitado
+  // PREMIUM OWNER => ilimitado (idempotente)
   if (ownerType === "premium") {
     await Presence.updateOne(
       { ownerId, projectId, userId: callerId },
@@ -40,11 +39,20 @@ async function ensureEditorSlot({ ownerId, projectId, callerId }) {
     return { ok: true, ownerType, active: null, limit: null };
   }
 
-  // Se já está ativo, refresca
+  // 🧹 limpar presenças antigas
+  await Presence.deleteMany({
+    ownerId,
+    projectId,
+    lastSeenAt: { $lt: cutoff },
+  });
+
+  // 1️⃣ Se já existe presença deste utilizador → refresca e termina
   const existing = await Presence.findOne({ ownerId, projectId, userId: callerId });
   if (existing) {
-    existing.lastSeenAt = new Date();
-    await existing.save();
+    await Presence.updateOne(
+      { ownerId, projectId, userId: callerId },
+      { $set: { lastSeenAt: new Date() } }
+    );
 
     const active = await Presence.countDocuments({
       ownerId,
@@ -55,7 +63,7 @@ async function ensureEditorSlot({ ownerId, projectId, callerId }) {
     return { ok: true, ownerType, active, limit: FREE_LIMIT };
   }
 
-  // Contar ativos recentes
+  // 2️⃣ Contar editores ativos
   const active = await Presence.countDocuments({
     ownerId,
     projectId,
@@ -66,8 +74,22 @@ async function ensureEditorSlot({ ownerId, projectId, callerId }) {
     return { ok: false, ownerType, active, limit: FREE_LIMIT };
   }
 
-  // Ocupar slot
-  await Presence.create({ ownerId, projectId, userId: callerId, lastSeenAt: new Date() });
+  // 3️⃣ Criar presença de forma segura (idempotente + tolerância a race)
+  try {
+    await Presence.updateOne(
+      { ownerId, projectId, userId: callerId },
+      { $set: { lastSeenAt: new Date() } },
+      { upsert: true }
+    );
+  } catch (e) {
+    if (e?.code !== 11000) throw e;
+
+    // Se houve corrida e já foi criado, apenas refresca
+    await Presence.updateOne(
+      { ownerId, projectId, userId: callerId },
+      { $set: { lastSeenAt: new Date() } }
+    );
+  }
 
   return { ok: true, ownerType, active: active + 1, limit: FREE_LIMIT };
 }

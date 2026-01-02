@@ -15,7 +15,7 @@ import {
 import { useSession } from "@/providers/session-provider";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSetProjectDirty } from "@/lib/mutations/projects";
-import { toast } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 
 interface ProjectContextData {
   project: SingleProject;
@@ -27,6 +27,7 @@ interface ProjectContextData {
   };
   hasUnsavedChanges: boolean;
   setHasUnsavedChanges: (dirty: boolean) => void;
+  canEdit: boolean;
 }
 
 const ProjectContext = createContext<ProjectContextData | undefined>(undefined);
@@ -36,6 +37,9 @@ export function ProjectProvider({
   project,
   currentImage,
   preview,
+  ownerId,
+  shareId,
+  canEdit = true,
 }: {
   children: React.ReactNode;
   project: SingleProject;
@@ -44,9 +48,13 @@ export function ProjectProvider({
     waiting: string;
     setWaiting: (waiting: string) => void;
   };
+  ownerId?: string;
+  shareId?: string;
+  canEdit?: boolean;
 }) {
   const session = useSession();
   const qc = useQueryClient();
+  const { toast } = useToast();
 
   const [version, setVersion] = useState<number>(Number(project.version) || 0);
 
@@ -82,7 +90,7 @@ export function ProjectProvider({
   }, [project.version]);
 
   function getLatestVersion() {
-    const projectKey = ["project", session.user._id, project._id, session.token, undefined, undefined];
+    const projectKey = ["project", session.user._id, project._id, session.token, ownerId, shareId];
     const cached = qc.getQueryData<any>(projectKey);
     const vCached = Number(cached?.version);
 
@@ -96,6 +104,13 @@ export function ProjectProvider({
   const lastErrorAt = useRef<number>(0);
 
   useEffect(() => {
+
+      if (!canEdit) {
+      lastDirtySent.current = false;
+      if (hasUnsavedChanges) setHasUnsavedChanges(false);
+      return;
+    }
+
     if (lastDirtySent.current === hasUnsavedChanges) return;
     lastDirtySent.current = hasUnsavedChanges;
 
@@ -110,8 +125,8 @@ export function ProjectProvider({
         userId: session.user._id,
         projectId: project._id,
         token: session.token,
-        ownerId: undefined,
-        shareId: undefined,
+        ownerId,
+        shareId,
         dirty: hasUnsavedChanges,
         projectVersion: v,
       },
@@ -142,7 +157,7 @@ export function ProjectProvider({
         },
       },
     );
-  }, [hasUnsavedChanges]); // intencional: só reage ao toggle true/false
+  }, [hasUnsavedChanges, canEdit]); // intencional: só reage ao toggle true/false
   // ---------------------------------------------------------------------------
 
   return (
@@ -153,7 +168,11 @@ export function ProjectProvider({
         currentImage,
         preview,
         hasUnsavedChanges,
-        setHasUnsavedChanges,
+        canEdit,
+        setHasUnsavedChanges: (dirty: boolean) => {
+          if (!canEdit) return;
+          setHasUnsavedChanges(dirty);
+        },
       }}
     >
       {children}
@@ -202,4 +221,12 @@ export function useUnsavedChanges() {
     hasUnsavedChanges: context.hasUnsavedChanges,
     setHasUnsavedChanges: context.setHasUnsavedChanges,
   };
+}
+
+export function useCanEditProject() {
+  const context = useContext(ProjectContext);
+  if (context === undefined) {
+    throw new Error("useCanEditProject() must be used within a ProjectProvider");
+  }
+  return context.canEdit;
 }

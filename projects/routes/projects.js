@@ -1,3 +1,4 @@
+
 var express = require("express");
 var router = express.Router();
 const axios = require("axios");
@@ -32,12 +33,15 @@ const jwt = require("jsonwebtoken");
 const { getCallerId } = require("../utils/caller");
 const { ensureEditorSlot, releaseEditorSlot } = require("../utils/presence");
 const { extractImageFeatures } = require("../utils/imageFeatures");
+const PreviewCache = require("../controllers/previewCache");
+const { makePreviewCacheKey } = require("../utils/cacheKey");
 
 const {
   get_image_docker,
   get_image_host,
   post_image,
   delete_image,
+  copy_image,
 } = require("../utils/minio");
 
 const {
@@ -131,6 +135,11 @@ function process_msg() {
       if (!process) {
         return;
       }
+
+       console.log(
+        `[T-03][RABBIT] msg=${msg_id} status=${msg_content.status} outType=${msg_content?.output?.type} curPos=${process.cur_pos} key=${(process.cache_key||"").slice(0,8)}`
+      );
+
       const ownerId = process.user_id;
       const runnerId = process.runner_id || process.user_id; 
 
@@ -167,73 +176,118 @@ function process_msg() {
 
       const next_pos = process.cur_pos + 1;
 
-      if (/preview/.test(msg_id) && (type == "text" || next_pos >= project.tools.length)) {
-        const file_path = path.join(__dirname, `/../${output_file_uri}`);
-        const file_name = path.basename(file_path);
-        const fileStream = fs.createReadStream(file_path); // Use createReadStream for efficiency
+if (/preview/.test(msg_id) && (type == "text" || next_pos >= project.tools.length)) {
+  const file_path = path.join(__dirname, `/../${output_file_uri}`);
+  const file_name = path.basename(file_path);
+  const fileStream = fs.createReadStream(file_path);
 
-        const data = new FormData();
-        await data.append(
-          "file",
-          fileStream,
-          path.basename(file_path),
-          mime.lookup(file_path)
-        );
+  const data = new FormData();
+  await data.append(
+    "file",
+    fileStream,
+    path.basename(file_path),
+    mime.lookup(file_path)
+  );
 
-        const resp = await post_image(
-          process.user_id,
-          process.project_id,
-          "preview",
-          data
-        );
+  const resp = await post_image(process.user_id, process.project_id, "preview", data);
 
-        const og_key_tmp = resp.data.data.imageKey.split("/");
-        const og_key = og_key_tmp[og_key_tmp.length - 1];
+  const og_key_tmp = resp.data.data.imageKey.split("/");
+  const og_key = og_key_tmp[og_key_tmp.length - 1];
 
-        
-        const preview = {
-          type: type,
-          file_name: file_name,
-          img_key: og_key,
-          img_id: img_id,
-          project_id: process.project_id,
-          user_id: process.user_id,
-        };
-        
-        await Preview.create(preview);
+  const preview = {
+    type: type,
+    file_name: file_name,
+    img_key: og_key,
+    img_id: img_id,
+    project_id: process.project_id,
+    user_id: process.user_id,
+  };
 
-        if(next_pos >= project.tools.length){
-          const previews = await Preview.getAll(process.user_id, process.project_id);
+  await Preview.create(preview);
 
-          let urls = {
-            'imageUrl': '',
-            'textResults': []
-          };
+  // considerar "preview final" quando:
+  // - a tool devolveu texto (tipicamente o fim), OU
+  // - chegámos ao fim do pipeline
+  if (type == "text" || next_pos >= project.tools.length) {
+    const previews = await Preview.getAll(process.user_id, process.project_id);
 
-          for(let p of previews){
-            const url_resp = await get_image_host(
-              process.user_id,
-              process.project_id,
-              "preview",
-              p.img_key
-            );
+    // 1) Copiar todos os previews do stage volátil (preview) para o stage persistente (preview_cache)
+    let copiedOk = true;
+    for (const p of previews) {
+      try {
+        await copy_image(process.user_id, process.project_id, "preview", "preview_cache", p.img_key);
+        const key8 = (process.cache_key || "").slice(0, 8);
+        console.log(`[T-03][CACHE-COPY][OK] key=${key8} file=${p.img_key}`);
 
-            const url = url_resp.data.url;
-
-            if(p.type != "text") urls.imageUrl = url;
-
-            else urls.textResults.push(url);
-          }
-          
-          send_msg_client_preview(
-            `update-client-preview-${uuidv4()}`,
-            timestamp,
-            runnerId,
-            JSON.stringify(urls)
-          );
-
-        }
+      } catch (e) {
+        copiedOk = false;
+          console.error(`[T-03][CACHE-COPY][FAIL] key=${key8} file=${p.img_key} err=${e.message}`);
+        // não faças crash — mas atenção: se falhar, o HIT futuro pode dar 404
       }
+    }
+
+    let urls = {
+      imageUrl: "",
+      textResults: [],
+    };
+
+    // Montar URLs atuais (assinadas) a partir das keys
+    for (let p of previews) {
+      const url_resp = await get_image_host(
+        process.user_id,
+        process.project_id,
+        "preview_cache",
+        p.img_key
+      );
+
+      const url = url_resp.data.url;
+
+      if (p.type != "text") urls.imageUrl = url;
+      else urls.textResults.push(url);
+    }
+
+    // ✅ métricas de duração (se timestamps ativos no Process)
+    const startedAt = process.createdAt ? new Date(process.createdAt).getTime() : null;
+    const durationMs = startedAt ? (Date.now() - startedAt) : null;
+
+    console.log(
+      `[T-03][RABBIT][PREVIEW-DONE] msg=${msg_id} key=${(process.cache_key||"").slice(0,8)} previews=${previews.length} durationMs=${durationMs}`
+    );
+
+    // ✅ grava cache do preview final (image + texts + duration)
+    // (se cache_key não existir por algum motivo, não crashes)
+    if (process.cache_key) {
+      const imgSha =
+        project.imgs.find((i) => String(i._id) === String(process.img_id))?.og_sha256 ?? "";
+
+      const imageKey = previews.find((p) => p.type !== "text")?.img_key ?? "";
+      const textKeys = previews.filter((p) => p.type === "text").map((p) => p.img_key);
+
+      await PreviewCache.upsert({
+        user_id: process.user_id,
+        project_id: process.project_id,
+        img_id: process.img_id,
+        cache_key: process.cache_key,
+        img_sha256: imgSha,
+        image_key: imageKey,
+        text_keys: textKeys,
+        duration_ms: durationMs,
+      });
+
+      console.log(
+        `[T-03][RABBIT][CACHE-SAVE] key=${process.cache_key.slice(0,8)} imageKey=${imageKey ? imageKey.slice(0,8) : "-"} textKeys=${textKeys.length}`
+      );
+    }
+
+    // ✅ envia preview ao cliente
+    send_msg_client_preview(
+      `update-client-preview-${uuidv4()}`,
+      timestamp,
+      runnerId,
+      JSON.stringify(urls)
+    );
+  }
+}
 
       if(/preview/.test(msg_id) && next_pos >= project.tools.length) return;
 
@@ -881,12 +935,68 @@ router.post("/:user/:project/preview/:img", checkSharePermission, requireEditPer
       const tool_name = tool.procedure;
       const params = tool.params;
 
+      const source_path = `/../images/users/${ownerId}/projects/${req.params.project}/src`;
+      const result_path = `/../images/users/${ownerId}/projects/${req.params.project}/preview`;
+
+      if (!fs.existsSync(path.join(__dirname, source_path)))
+        fs.mkdirSync(path.join(__dirname, source_path), { recursive: true });
+
+      if (!fs.existsSync(path.join(__dirname, result_path)))
+        fs.mkdirSync(path.join(__dirname, result_path), { recursive: true });
+
+      const img = project.imgs.filter((i) => i._id == req.params.img)[0];
+
+      const orderedTools = [...project.tools].sort((a,b) => a.position - b.position);
+      const cacheKey = makePreviewCacheKey(img.og_sha256, orderedTools);
+
+      console.log(
+        `[T-03][PREVIEW] req user=${ownerId} project=${req.params.project} img=${req.params.img} key=${cacheKey.slice(0,8)} tools=${orderedTools.length}`
+      );
+
+      const cached = await PreviewCache.getByKey(ownerId, cacheKey);
+      if (cached) {
+        // gerar URLs atuais (assinadas) a partir das keys guardadas
+        const urls = { imageUrl: "", textResults: [] };
+        if (cached.image_key) {
+          const u = await get_image_host(ownerId, req.params.project, "preview_cache", cached.image_key);
+          urls.imageUrl = u.data.url;
+        }
+        for (const tk of cached.text_keys || []) {
+          const u = await get_image_host(ownerId, req.params.project, "preview_cache", tk);
+          urls.textResults.push(u.data.url);
+        }
+
+        await PreviewCache.touchHit(ownerId, cacheKey);
+
+        console.log(
+          `[T-03][PREVIEW][HIT] key=${cacheKey.slice(0,8)} imgSha=${img.og_sha256?.slice(0,8)}`
+        );
+
+        // envia imediatamente para o runner (cumpre performance)
+        send_msg_client_preview(
+          `update-client-preview-${uuidv4()}`,
+          new Date().toISOString(),
+          runnerUserId,
+          JSON.stringify(urls)
+        );
+        return res.sendStatus(200);
+      }
+
+      console.log(
+        `[T-03][PREVIEW][MISS] key=${cacheKey.slice(0,8)} -> processing`
+      );
+
       const prev_preview = await Preview.getAll(
         ownerId,
         req.params.project
       );
 
+      console.log(
+        `[T-03][PREVIEW][CLEAN] deleting previous previews count=${prev_preview.length}`
+      );
+
       for (let p of prev_preview) {
+        console.log(`[T-03][PREVIEW][CLEAN] delete key=${p.img_key}`);
         await delete_image(
           ownerId,
           req.params.project,
@@ -900,16 +1010,6 @@ router.post("/:user/:project/preview/:img", checkSharePermission, requireEditPer
         );
       }
 
-      const source_path = `/../images/users/${ownerId}/projects/${req.params.project}/src`;
-      const result_path = `/../images/users/${ownerId}/projects/${req.params.project}/preview`;
-
-      if (!fs.existsSync(path.join(__dirname, source_path)))
-        fs.mkdirSync(path.join(__dirname, source_path), { recursive: true });
-
-      if (!fs.existsSync(path.join(__dirname, result_path)))
-        fs.mkdirSync(path.join(__dirname, result_path), { recursive: true });
-
-      const img = project.imgs.filter((i) => i._id == req.params.img)[0];
       const msg_id = `preview-${uuidv4()}`;
       const timestamp = new Date().toISOString();
       const og_img_uri = img.og_uri;
@@ -945,6 +1045,7 @@ router.post("/:user/:project/preview/:img", checkSharePermission, requireEditPer
         cur_pos: 0,
         og_img_uri: og_img_uri,
         new_img_uri: new_img_uri,
+        cache_key: cacheKey,
       };
 
       Process.create(process)

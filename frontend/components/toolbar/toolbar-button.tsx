@@ -15,6 +15,7 @@ import {
   usePreview,
   useProjectInfo,
   useUnsavedChanges,
+  useCanEditProject,
 } from "@/providers/project-provider";
 import {
   useAddProjectTool,
@@ -23,11 +24,11 @@ import {
   useUpdateProjectTool,
 } from "@/lib/mutations/projects";
 import { ProjectTool, ProjectToolResponse } from "@/lib/projects";
-import { toast } from "@/hooks/use-toast";
 import { useGetSocket } from "@/lib/queries/projects";
 import { Tooltip, TooltipTrigger, TooltipContent } from "../ui/tooltip";
 import { getErrorMessage } from "@/lib/error-messages";
 import { useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
 
 interface ToolbarButtonProps {
   open?: boolean;
@@ -44,6 +45,7 @@ interface ToolbarButtonProps {
 }
 
 export function ToolbarButton({
+  
   open = false,
   setOpen = () => {},
   icon: Icon,
@@ -61,6 +63,8 @@ export function ToolbarButton({
   const project = useProjectInfo();
   const preview = usePreview();
   const { setHasUnsavedChanges } = useUnsavedChanges();
+  const { toast } = useToast();
+  const canEdit = useCanEditProject();
 
   const socket = useGetSocket(session.token);
   const searchParams = useSearchParams();
@@ -137,6 +141,7 @@ export function ToolbarButton({
   const [timedout, setTimedout] = useState(false);
 
   function handleDeleteTool() {
+    if (!canEdit) return;
     if (!prevTool) return;
 
     deleteTool.mutate(
@@ -152,6 +157,8 @@ export function ToolbarButton({
   }
 
   function handlePreview() {
+
+    if (!canEdit) return;
     previewEdits.mutate(
       { imageId: currentImage?._id ?? "", projectVersion: project.version },
       {
@@ -171,6 +178,8 @@ export function ToolbarButton({
   }
 
   function handleAddTool(runPreview?: boolean) {
+    
+    if (!canEdit) return;
     const afterSuccess = () => {
       setHasUnsavedChanges(false); // acabou de guardar
       if (runPreview) handlePreview();
@@ -206,6 +215,16 @@ export function ToolbarButton({
   }
 
   function handleClick() {
+
+     if (!canEdit) {
+      toast({
+        title: "Read-only",
+        description: "Este projeto foi partilhado com permissão de leitura.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (isPremium && session.user.type === "anonymous") {
       router.push("/login");
       return;
@@ -253,6 +272,15 @@ export function ToolbarButton({
     setPrevTool(project.tools.find((t) => t.procedure === tool.procedure));
   }, [project.tools, tool.procedure]);
 
+  const locked = !canEdit;
+
+  const uiDisabled =
+    disabled ||
+    locked ||
+    (preview.waiting !== tool.procedure && preview.waiting !== "");
+
+  const lockReason = "Read-only (não podes editar)";
+
   const TButton = () => (
     <Tooltip>
       <Button
@@ -260,7 +288,7 @@ export function ToolbarButton({
         className={`size-8 relative ${
           isPremium && variant === "default" ? "bg-indigo-500 hover:bg-indigo-400" : ""
         }`}
-        disabled={disabled || (preview.waiting !== tool.procedure && preview.waiting !== "")}
+        disabled={uiDisabled}
         onClick={handleClick}
       >
         {waiting ? (
@@ -296,11 +324,8 @@ export function ToolbarButton({
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
-      {!((isPremium && session.user.type === "anonymous") || noParams) ? (
-        <DropdownMenuTrigger
-          asChild
-          disabled={disabled || (preview.waiting !== tool.procedure && preview.waiting !== "")}
-        >
+      {!locked && !((isPremium && session.user.type === "anonymous") || noParams) ? (
+        <DropdownMenuTrigger asChild disabled={uiDisabled}>
           <div>
             <TButton />
           </div>
@@ -311,12 +336,15 @@ export function ToolbarButton({
         </div>
       )}
 
-      <DropdownMenuContent
-        className="w-[--radix-dropdown-menu-trigger-width] min-w-64 rounded-lg"
-        side="right"
-        align="end"
-        sideOffset={4}
-      >
+
+      {!locked && (
+        <DropdownMenuContent
+          className="w-[--radix-dropdown-menu-trigger-width] min-w-64 rounded-lg"
+          side="right"
+          align="end"
+          sideOffset={4}
+        >
+
         <DropdownMenuLabel className="text-sm p-1">{label}</DropdownMenuLabel>
         <DropdownMenuSeparator />
         <div className="p-1">{children}</div>
@@ -353,6 +381,7 @@ export function ToolbarButton({
           </Button>
         </div>
       </DropdownMenuContent>
+    )}
     </DropdownMenu>
   );
 }

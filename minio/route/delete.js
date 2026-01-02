@@ -6,11 +6,14 @@ const router = express.Router();
 router.delete("/:userId/:projectId/:stage/:fileName", async (req, res) => {
   const { userId, projectId, stage, fileName } = req.params;
 
-  if (!["src", "preview", "out"].includes(stage)) {
-    return res
-      .status(400)
-      .json({ error: "O estágio deve ser src, preview ou out." });
+  const allowedStages = require("../utils/stages"); 
+
+  if (!allowedStages.includes(stage)) {
+    return res.status(400).json({
+      error: "O estágio deve ser src, preview, preview_cache ou out.",
+    });
   }
+
 
   try {
     const result = await deleteFile(userId, projectId, stage, fileName);
