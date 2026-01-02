@@ -19,6 +19,7 @@ export function AppliedToolsList() {
   const setTools = useSetProjectTools();
   const session = useSession();
   const searchParams = useSearchParams();
+  const mode = searchParams.get("mode") ?? "edit";
   const ownerParam = searchParams.get("owner") ?? session.user._id; 
   const qc = useQueryClient();
   const shareId = searchParams.get("share") ?? undefined;
@@ -86,6 +87,16 @@ export function AppliedToolsList() {
     reorder.mutate(
       { tools: withPositions, projectVersion: project.version },
       {
+        onSuccess: () => {
+          // T-06: "atualização imediata" => reaplicar sequência e atualizar preview
+          if (mode === "edit" && imageId) {
+            preview.mutate({
+              imageId,
+              projectVersion: project.version,
+            });
+          }
+        },
+
         onError: (error) => {
           console.error("Erro ao reordenar:", error);
           const { title, description } = getErrorMessage("project-update", error);
