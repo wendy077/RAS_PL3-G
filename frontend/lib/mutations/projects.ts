@@ -18,7 +18,8 @@ import {
   listProjectShareLinks,
   createProjectShareLink,
   revokeShareLink,
-  clearProjectTools,   
+  clearProjectTools,
+  setProjectDirty,  
 } from "../projects";
 import { downloadProjectPdf } from "../projects";
 import { createBlobUrlFromFile, downloadBlob } from "../utils";
@@ -556,3 +557,16 @@ export const useAssistantSuggest = (
     },
   });
 };
+
+export const useSetProjectDirty = () => {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: setProjectDirty,
+    onSuccess: (resp, vars) => {
+      const projectKey = ["project", vars.userId, vars.projectId, vars.token, vars.ownerId, vars.shareId];
+      bumpProjectVersion(qc, projectKey, resp.newVersionHeader);
+    },
+  });
+};
+

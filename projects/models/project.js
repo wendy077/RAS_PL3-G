@@ -20,6 +20,10 @@ const projectSchema = new mongoose.Schema({
   imgs: { type: [imgSchema], default: [] },
   tools: { type: [toolSchema], default: [] },
   version: { type: Number, default: 0 },
+  dirty: { type: Boolean, default: false },
+  dirtyUpdatedAt: { type: Date, default: null }, // opcional
+  dirtyBy: { type: mongoose.Schema.Types.ObjectId, default: null }, // opcional
+
 
   // número de ferramentas avançadas já “pagas” neste projeto
   chargedAdvancedTools: { type: Number, default: 0 },

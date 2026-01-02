@@ -390,6 +390,17 @@ router.post("/:user/:project/share", requireOwner, enforcePresenceLimit, require
       revoked: false,
     };
 
+    const project = await Project.getOne(req.params.user, req.params.project);
+      if (!project) return res.status(404).jsonp("Project not found");
+
+      if (project.dirty) {
+        return res.status(409).jsonp({
+          message: "Project has unsaved changes",
+          code: "UNSAVED_CHANGES",
+          serverVersion: project.version ?? null,
+        });
+      }
+
     const updated = await Project.addShareLinkIfVersion(
       req.params.user,
       req.params.project,
@@ -2075,5 +2086,48 @@ router.delete("/:owner/:project/presence", async (req, res) => {
   await releaseEditorSlot({ ownerId, projectId, callerId });
   return res.sendStatus(204);
 });
+
+// marcar projeto como dirty/clean (server-side)
+router.post(
+  "/:user/:project/dirty",
+  checkSharePermission,
+  requireEditPermission,
+  enforcePresenceLimit,
+  requireProjectVersion,
+  async (req, res) => {
+    try {
+      const dirty = !!req.body?.dirty;
+
+      const project = await Project.getOne(req.params.user, req.params.project);
+      if (!project) return res.status(404).jsonp("Project not found");
+
+      // atualiza flags
+      project.dirty = dirty;
+      project.dirtyUpdatedAt = new Date();
+      project.dirtyBy = getCallerId(req) || project.user_id;
+
+      const updated = await Project.updateIfVersion(
+        req.params.user,
+        req.params.project,
+        project,
+        req.expectedVersion
+      );
+
+      if (!updated) {
+        const fresh = await Project.getOne(req.params.user, req.params.project);
+        return res.status(409).jsonp({
+          message: "Project version conflict",
+          serverVersion: fresh?.version ?? null,
+        });
+      }
+
+      res.set("X-Project-Version", String(updated.version));
+      return res.sendStatus(204);
+    } catch (err) {
+      console.error("Error setting dirty:", err);
+      return res.status(500).jsonp("Error setting dirty flag");
+    }
+  }
+);
 
 module.exports = { router, process_msg };

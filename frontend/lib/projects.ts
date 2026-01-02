@@ -5,12 +5,14 @@ import { ToolNames, ToolParams } from "./tool-types";
 import { PDFDocument } from "pdf-lib";
 
 function buildQuery(params: { ownerId?: string; shareId?: string }) {
+  if (!params.shareId) return "";          // <-- chave
   const search = new URLSearchParams();
   if (params.ownerId) search.set("owner", params.ownerId);
-  if (params.shareId) search.set("share", params.shareId);
+  search.set("share", params.shareId);
   const qs = search.toString();
   return qs ? `?${qs}` : "";
 }
+
 export interface Project {
   _id: string;
   user_id: string;
@@ -1023,3 +1025,40 @@ export const assistantSuggest = async (params: {
     newVersionHeader: resp.headers?.["x-project-version"],
   };
 };
+
+export async function setProjectDirty({
+  userId,
+  projectId,
+  token,
+  ownerId,
+  shareId,
+  dirty,
+  projectVersion,
+}: {
+  userId: string;
+  projectId: string;
+  token: string;
+  ownerId?: string;
+  shareId?: string;
+  dirty: boolean;
+  projectVersion: number;
+}): Promise<{ newVersionHeader?: string }> {
+  const isShare = !!shareId;
+  const pathUid = isShare ? (ownerId ?? userId) : userId;
+
+  // só buildQuery quando for share
+  const query = isShare ? buildQuery({ ownerId, shareId }) : "";
+
+  const resp = await api.post(
+    `/projects/${pathUid}/${projectId}/dirty${query}`,
+    { dirty },
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-Project-Version": String(projectVersion),
+      },
+    },
+  );
+
+  return { newVersionHeader: resp.headers?.["x-project-version"] };
+}

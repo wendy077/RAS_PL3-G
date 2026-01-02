@@ -1,7 +1,21 @@
 "use client";
 
-import { ProjectImage, SingleProject, ProjectToolResponse } from "@/lib/projects";
-import { createContext, useContext, useState, useEffect } from "react";
+import {
+  ProjectImage,
+  SingleProject,
+  ProjectToolResponse,
+} from "@/lib/projects";
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useRef,
+} from "react";
+import { useSession } from "@/providers/session-provider";
+import { useQueryClient } from "@tanstack/react-query";
+import { useSetProjectDirty } from "@/lib/mutations/projects";
+import { toast } from "@/hooks/use-toast";
 
 interface ProjectContextData {
   project: SingleProject;
@@ -31,26 +45,110 @@ export function ProjectProvider({
     setWaiting: (waiting: string) => void;
   };
 }) {
+  const session = useSession();
+  const qc = useQueryClient();
+
+  const [version, setVersion] = useState<number>(Number(project.version) || 0);
+
   const [tools, setTools] = useState(project.tools);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // manter state tools alinhado com o project vindo do backend
   useEffect(() => {
+    if (hasUnsavedChanges) return;
     setTools(project.tools);
-  }, [project.tools]);
+  }, [project.tools, hasUnsavedChanges]);
+
 
   // só limpar o sentinel do Apply (não mexe no hasUnsavedChanges)
-    useEffect(() => {
-      if (preview.waiting === "__APPLY_DONE__") {
-        preview.setWaiting("");
-      }
-    }, [preview.waiting, preview]);
+  useEffect(() => {
+    if (preview.waiting === "__APPLY_DONE__") {
+      preview.setWaiting("");
+    }
+  }, [preview.waiting, preview]);
 
+  // -------------------- DIRTY SYNC (RNF46/RF50 server-side) --------------------
+  const setDirtyMut = useSetProjectDirty();
+
+  // guarda a versão “mais recente” conhecida sem depender só de props
+  const vLocalRef = useRef<number>(Number(project.version) || 0);
+
+  useEffect(() => {
+    const v = Number(project.version);
+    if (Number.isFinite(v)) {
+      vLocalRef.current = v;
+      setVersion(v);
+    }
+  }, [project.version]);
+
+  function getLatestVersion() {
+    const projectKey = ["project", session.user._id, project._id, session.token, undefined, undefined];
+    const cached = qc.getQueryData<any>(projectKey);
+    const vCached = Number(cached?.version);
+
+    const candidates = [vLocalRef.current, vCached].filter(Number.isFinite) as number[];
+    return candidates.length ? Math.max(...candidates) : vLocalRef.current;
+  }
+
+  // evita repetir chamadas se o boolean não mudou
+  const lastDirtySent = useRef<boolean | null>(null);
+  // evita toasts repetidos se o backend falhar em loop
+  const lastErrorAt = useRef<number>(0);
+
+  useEffect(() => {
+    if (lastDirtySent.current === hasUnsavedChanges) return;
+    lastDirtySent.current = hasUnsavedChanges;
+
+    // se a mutation não está pronta (ex: sem sessão), não faz nada
+    if (!session?.token || !session?.user?._id || !project?._id) return;
+
+    const v = getLatestVersion();
+    if (!Number.isFinite(v)) return;
+
+      setDirtyMut.mutate(
+        {
+        userId: session.user._id,
+        projectId: project._id,
+        token: session.token,
+        ownerId: undefined,
+        shareId: undefined,
+        dirty: hasUnsavedChanges,
+        projectVersion: v,
+      },
+      {
+        onSuccess: (resp: any) => {
+          const newV = Number(resp?.newVersionHeader);
+          if (Number.isFinite(newV)) {
+            vLocalRef.current = newV;
+            setVersion(newV); // <- ESTA LINHA é a diferença
+          }
+        },
+        onError: (err: any) => {
+          // 409 é “normal” se alguém mexeu na versão entre cliques — não precisa toast
+          const status = err?.status ?? err?.response?.status;
+          if (status === 409) return;
+
+          // throttling de toast (ex: offline)
+          const now = Date.now();
+          if (now - lastErrorAt.current < 4000) return;
+          lastErrorAt.current = now;
+
+          toast({
+            variant: "destructive",
+            title: "Erro ao sincronizar alterações",
+            description:
+              "Não foi possível atualizar no servidor o estado de alterações não guardadas. Tenta novamente.",
+          });
+        },
+      },
+    );
+  }, [hasUnsavedChanges]); // intencional: só reage ao toggle true/false
+  // ---------------------------------------------------------------------------
 
   return (
     <ProjectContext.Provider
       value={{
-        project: { ...project, tools },
+        project: { ...project, tools, version },
         setProjectTools: setTools,
         currentImage,
         preview,
