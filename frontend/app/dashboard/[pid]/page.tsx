@@ -1,7 +1,7 @@
 "use client";
 
 import { Download, LoaderCircle, OctagonAlert, Play } from "lucide-react";
-import { fetchSharedProject } from "@/lib/projects";
+import { fetchSharedProject, resolveShareLink } from "@/lib/projects";
 import { ProjectImageList } from "@/components/project-page/project-image-list";
 import { ViewToggle } from "@/components/project-page/view-toggle";
 import { AddImagesDialog } from "@/components/project-page/add-images-dialog";
@@ -125,38 +125,37 @@ export default function Project({
 
   // link de partilha enquanto o editor está aberto em modo "edit"
   useEffect(() => {
-    // só faz sentido se estivermos em modo edit e houver shareId
-    if (!shareId || mode !== "edit") return;
+    if (mode !== "edit") return;
+    if (!shareId) return;
+    if (!session.token) return;
+
+    const sid = shareId;          // ← narrowing definitivo
+    const token = session.token;
 
     let cancelled = false;
 
     async function pingShare() {
       try {
-        await fetchSharedProject(shareId!);
-
-        if (cancelled) return;
-        // se estiver tudo ok, garantimos que o estado volta a "não revogado"
+        await resolveShareLink(shareId!);
         setShareRevoked(false);
-      } catch (err) {
-        if (cancelled) return;
-
-        console.error("Share heartbeat error", err);
-        // qualquer falha aqui significa que o link deixou de ser válido
-        setShareRevoked(true);
+      } catch (err: any) {
+        const status = err?.response?.status;
+        // 410 = revogado → true
+        if (status === 410) setShareRevoked(true);
+        // outros erros: podes decidir
+        else setShareRevoked(true); // ou false se preferires "falha de rede não revoga"
       }
     }
 
-    // ping inicial
     pingShare();
 
-    // ping a cada 10 segundos
     const interval = setInterval(pingShare, 10000);
 
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [shareId, mode]);
+  }, [mode, shareId, session.token]);
 
   // heartbeat de presença (editores ativos) enquanto estiver em mode=edit
 useEffect(() => {

@@ -135,13 +135,17 @@ export const resolveShareLink = async (shareId: string) => {
     projectId: string;
     ownerId: string;
     permission: "read" | "edit";
-    projectName: string;
+    projectName?: string;
+    
   };
 };
 
-export const fetchSharedProject = async (shareId: string) => {
+export const fetchSharedProject = async (shareId: string, token: string) => {
   const response = await api.get<SharedProject>(
     `/projects/share/${shareId}/project`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
   );
 
   if (response.status !== 200 || !response.data) {
@@ -150,6 +154,7 @@ export const fetchSharedProject = async (shareId: string) => {
 
   return response.data;
 };
+
 
 export const fetchProjects = async (uid: string, token: string) => {
     if (!uid || !token) return []; // evita /projects/ sem uid

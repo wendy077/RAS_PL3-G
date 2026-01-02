@@ -123,24 +123,32 @@ router.post("/:user/:project/share", auth.checkToken, (req, res) => {
 
 });
 
-// resolver link de partilha (público – sem auth)
+// resolver link de partilha (PÚBLICO – sem auth)
+// devolve { projectId, ownerId, permission }
 router.get("/share/:shareId", (req, res) => {
   axios
     .get(projectsURL + `share/${req.params.shareId}`, { httpsAgent })
     .then((resp) => res.status(200).jsonp(resp.data))
-    .catch((err) => {
-      const status = err.response?.status || 500;
-      const msg =
-        err.response?.data ||
-        (status === 404
-          ? "Share link not found"
-          : status === 410
-            ? "Share link revoked"
-            : "Error resolving share link");
-
-      res.status(status).jsonp(msg);
-    });
+    .catch((err) => forwardAxiosError(res, err, "Error resolving share link"));
 });
+
+// obter projeto completo via shareId (PROTEGIDO – requer JWT)
+router.get("/share/:shareId/project", auth.checkToken, (req, res) => {
+  const callerId = req.authUserId;
+
+  axios
+    .get(projectsURL + `share/${req.params.shareId}/project`, {
+      httpsAgent,
+      headers: {
+        Authorization: req.headers["authorization"],
+        "X-Caller-Id": callerId,
+      },
+    })
+    .then((resp) => res.status(200).jsonp(resp.data))
+    .catch((err) => forwardAxiosError(res, err, "Error getting shared project"));
+});
+
+
 
 // revogar link de partilha (dono, protegido)
 router.delete("/:user/:project/share/:shareId", auth.checkToken, (req, res) => {
@@ -165,21 +173,6 @@ router.delete("/:user/:project/share/:shareId", auth.checkToken, (req, res) => {
       return res.sendStatus(204);
     })
     .catch((err) => forwardAxiosError(res, err, "mensagem fallback"));
-});
-
-// obter projeto completo via shareId (público, sem auth)
-router.get("/share/:shareId/project", (req, res) => {
-  axios
-    .get(projectsURL + `share/${req.params.shareId}/project`, {
-      httpsAgent,
-    })
-    .then((resp) => res.status(200).jsonp(resp.data))
-    .catch((err) => {
-      console.error("Error getting shared project:", err.response?.data || err);
-      const status = err.response?.status || 500;
-      const msg = err.response?.data || "Error getting shared project";
-      res.status(status).jsonp(msg);
-    });
 });
 
 /**

@@ -9,6 +9,7 @@ import {
 import io from "socket.io-client";
 import { listProjectShareLinks, fetchSharedProject } from "../projects";
 import type { ShareLink } from "../projects";
+import { resolveShareLink } from "../projects";
 
 export const useProjectShareLinks = (
   userId: string,
@@ -85,10 +86,20 @@ export const useGetProjectResults = (
   });
 };
 
-export const useGetSharedProject = (shareId: string) => {
+export const useGetSharedProject = (shareId: string, token: string) => {
   return useQuery({
-    queryKey: ["sharedProject", shareId],
-    queryFn: () => fetchSharedProject(shareId),
+    queryKey: ["sharedProject", shareId, token],
+    queryFn: () => fetchSharedProject(shareId, token),
+    enabled: !!shareId && !!token,
+  });
+};
+
+export const useResolveShareLink = (shareId?: string | null) => {
+  return useQuery({
+    queryKey: ["resolveShareLink", shareId],
+    queryFn: () => resolveShareLink(shareId as string),
     enabled: !!shareId,
+    staleTime: 30_000,
+    retry: false,
   });
 };

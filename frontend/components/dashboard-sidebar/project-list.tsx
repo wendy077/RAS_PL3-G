@@ -1,3 +1,6 @@
+"use client";
+
+import Link from "next/link";
 import { Skeleton } from "../ui/skeleton";
 import {
   SidebarMenuItem,
@@ -8,7 +11,7 @@ import {
 } from "../ui/sidebar";
 import ProjectItem from "./project-item";
 import { useSession } from "@/providers/session-provider";
-import { useGetProjects, useGetSharedProject } from "@/lib/queries/projects"; // ⬅️ ADICIONADO useGetSharedProject
+import { useGetProjects, useResolveShareLink } from "@/lib/queries/projects";
 import { Search } from "lucide-react";
 import { Button } from "../ui/button";
 import { useEffect, useState } from "react";
@@ -18,15 +21,13 @@ import { useSearchParams } from "next/navigation";
 
 export default function ProjectList() {
   const session = useSession();
-  const uid = session.user._id;
-  const token = session.token;
   const projects = useGetProjects(session.user._id, session.token);
 
   const searchParams = useSearchParams();
-  const shareId = searchParams.get("share"); // ler o shareId da URL
+  const shareId = searchParams.get("share"); // shareId da URL
 
-  // se houver shareId, tentamos ir buscar o projeto partilhado
-  const sharedProjectQuery = useGetSharedProject(shareId ?? "");
+  // ✅ resolve do share link (projectId, ownerId, permission, projectName)
+  const shared = useResolveShareLink(shareId ?? undefined);
 
   const [searchOpen, setSearchOpen] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -62,8 +63,6 @@ export default function ProjectList() {
     }
   }, [searchQuery, lastUpdated, searchOpen]);
 
-  const hasOwnProjects = projects.data && projects.data.length > 0;
-
   return (
     <SidebarGroup>
       <SidebarGroupLabel className="flex justify-between items-center">
@@ -80,6 +79,7 @@ export default function ProjectList() {
           <Search className="size-[1em]" />
         </Button>
       </SidebarGroupLabel>
+
       {projects.data && projects.data.length > 0 && (
         <Transition
           show={searchOpen}
@@ -98,8 +98,10 @@ export default function ProjectList() {
           />
         </Transition>
       )}
+
       <SidebarGroupContent>
         <SidebarMenu>
+          {/* Projetos do utilizador */}
           {!projects.isLoading &&
             projects.data &&
             (filteredProjects.length > 0
@@ -118,30 +120,31 @@ export default function ProjectList() {
             </SidebarMenuItem>
           )}
 
-          {/* CASO 1: Sem projetos do utilizador, mas estamos num projeto partilhado válido */}
+          {/* ✅ CASO 1: Sem projetos do utilizador, mas share válido */}
           {!projects.isLoading &&
             projects.data &&
             projects.data.length === 0 &&
             shareId &&
-            sharedProjectQuery.isSuccess &&
-            sharedProjectQuery.data && (
+            shared.isSuccess &&
+            shared.data && (
               <SidebarMenuItem>
-                <span className="pl-2">
-                  {sharedProjectQuery.data.name}{" "}
+                <Link
+                  href={`/dashboard/${shared.data.projectId}?owner=${shared.data.ownerId}&share=${shareId}`}
+                  className="pl-2 underline"
+                >
+                  {shared.data.projectName ?? "Shared project"}{" "}
                   <span className="text-xs text-muted-foreground">
-                    (Shared)
+                    (Shared, permission: {shared.data.permission})
                   </span>
-                </span>
+                </Link>
               </SidebarMenuItem>
             )}
 
-          {/* CASO 2: Sem projetos e sem partilha ativa → "Empty for now." */}
+          {/* CASO 2: Sem projetos e sem share válido */}
           {!projects.isLoading &&
             projects.data &&
             projects.data.length === 0 &&
-            (!shareId ||
-              sharedProjectQuery.isError ||
-              !sharedProjectQuery.data) && (
+            (!shareId || shared.isError || !shared.data) && (
               <SidebarMenuItem>
                 <span className="pl-2">Empty for now.</span>
               </SidebarMenuItem>

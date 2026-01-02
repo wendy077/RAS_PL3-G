@@ -89,6 +89,11 @@ function requireOwner(req, res, next) {
   next();
 }
 
+function requireAuth(req, res, next) {
+  const caller = getCallerId(req);
+  if (!caller) return res.status(401).jsonp("Authentication required");
+  next();
+}
 
 /**
  * Calcula quantas operações avançadas vão ser usadas *nesta execução*.
@@ -440,6 +445,7 @@ router.get("/share/:shareId", async (req, res) => {
       ownerId: project.user_id,
       permission: link.permission,
       projectName: project.name,
+
     });
   } catch (err) {
     console.error("Error resolving share link:", err);
@@ -448,7 +454,7 @@ router.get("/share/:shareId", async (req, res) => {
 });
 
 // devolver projeto completo (imgs + tools) via shareId, sem precisar do owner
-router.get("/share/:shareId/project", async (req, res) => {
+router.get("/share/:shareId/project", requireAuth,async (req, res) => {
   try {
     const project = await Project.getOneByShareId(req.params.shareId);
 
@@ -477,8 +483,7 @@ router.get("/share/:shareId/project", async (req, res) => {
       imgs: [],
       permission: link.permission,
       version: project.version, 
-      chargedAdvancedTools: project.chargedAdvancedTools || 0,
-      pendingAdvancedOps: project.pendingAdvancedOps || 0,
+
     };
 
     // tentar usar resultados mais recentes
