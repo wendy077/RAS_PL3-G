@@ -339,7 +339,7 @@ export const useUpdateProjectTool = (uid: string, pid: string, token: string, ow
   const projectKey = ["project", uid, pid, token, ownerId, shareId];
 
   return useMutation({
-    mutationFn: (args: { toolId: string; toolParams: any; projectVersion: number }) =>
+    mutationFn: (args: { toolId: string; toolParams: any; projectVersion: number; opId?: string; }) =>
       updateProjectTool({
         uid,
         pid,
@@ -370,7 +370,7 @@ export const useDeleteProjectTool = (
   const projectKey = ["project", uid, pid, token, ownerId, shareId];
 
   return useMutation({
-    mutationFn: (args: { toolId: string; projectVersion: number }) =>
+    mutationFn: (args: { toolId: string; projectVersion: number; opId?: string }) =>
       deleteProjectTool({
         uid,
         pid,
@@ -403,7 +403,7 @@ export const useReorderProjectTools = (
   const projectKey = ["project", uid, pid, token, ownerId, shareId];
 
   return useMutation({
-    mutationFn: (args: { tools: ProjectToolResponse[]; projectVersion: number }) =>
+    mutationFn: (args: { tools: ProjectToolResponse[]; projectVersion: number; opId?: string }) =>
       reorderProjectTools({
         uid,
         pid,
@@ -510,7 +510,7 @@ export const useClearProjectTools = (
   const qc = useQueryClient();
 
   return useMutation({
-    mutationFn: (params: { toolIds: string[]; projectVersion: number }) =>
+    mutationFn: (params: { toolIds: string[]; projectVersion: number; opId?: string }) =>
       clearProjectTools({
         uid,
         pid,

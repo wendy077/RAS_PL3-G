@@ -6,16 +6,17 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 export function ModeToggle() {
   const searchParams = useSearchParams();
-  const view = searchParams.get("view") ?? "grid";
   const mode = searchParams.get("mode") ?? "edit";
-  const owner = searchParams.get("owner");
   const router = useRouter();
 
   const buildUrl = (nextMode: "edit" | "results") => {
-    const params = new URLSearchParams();
+    // ✅ começa com os params atuais (mantém share, owner, etc.)
+    const params = new URLSearchParams(searchParams.toString());
     params.set("mode", nextMode);
-    params.set("view", view);
-    if (owner) params.set("owner", owner);
+
+    // (opcional) garantir defaults se não existirem
+    if (!params.get("view")) params.set("view", "grid");
+
     return `?${params.toString()}`;
   };
 

@@ -95,4 +95,17 @@ function read_msg(callback){
     read_rabbit_msg(queues['project'], callback);
 }
 
-module.exports = { send_msg_tool, send_msg_client, send_msg_client_error, send_msg_client_preview, send_msg_client_preview_error, read_msg };
+function send_msg_project_op({ projectId, ownerId, op }) {
+  const queue = queues["ws"];
+  const msg = {
+    type: "project-op",
+    projectId,
+    ownerId,
+    op, // payload da operação 
+    timestamp: Date.now(),
+    status: "success",
+  };
+  send_rabbit_msg(msg, queue);
+}
+
+module.exports = { send_msg_tool, send_msg_client, send_msg_client_error, send_msg_client_preview, send_msg_client_preview_error, read_msg, send_msg_project_op };

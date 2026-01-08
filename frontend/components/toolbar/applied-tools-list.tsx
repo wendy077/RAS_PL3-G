@@ -83,9 +83,11 @@ export function AppliedToolsList() {
     // update UI immediately
     setTools(withPositions);
 
+    const opId = crypto.randomUUID();
+
     // update backend positions
     reorder.mutate(
-      { tools: withPositions, projectVersion: project.version },
+      { tools: withPositions, projectVersion: project.version, opId },
       {
         onSuccess: () => {
           // T-06: "atualização imediata" => reaplicar sequência e atualizar preview
@@ -111,10 +113,12 @@ export function AppliedToolsList() {
   }
 
   function handleRemove(id: string) {
+    const opId = crypto.randomUUID();
     deleteTool.mutate(
       {
         toolId: id,
         projectVersion: project.version,
+        opId,
       },
       {
         onSuccess: () => {
@@ -138,11 +142,13 @@ function handleUndo() {
   }
 
   const lastTool = tools[tools.length - 1];
+  const opId = crypto.randomUUID();
 
   deleteTool.mutate(
     {
       toolId: lastTool._id,
       projectVersion: project.version,
+      opId,
     },
     {
       onSuccess: () => {
@@ -182,9 +188,10 @@ function handleReset() {
   }
 
   const ids = tools.map((t) => t._id);
+  const opId = crypto.randomUUID();
 
   clearTools.mutate(
-    { toolIds: ids, projectVersion: project.version },
+    { toolIds: ids, projectVersion: project.version, opId},
     {
       onSuccess: () => {
         setTools([]);

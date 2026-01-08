@@ -13,6 +13,11 @@ function buildQuery(params: { ownerId?: string; shareId?: string }) {
   return qs ? `?${qs}` : "";
 }
 
+function pathUidFor(uid: string, ownerId?: string, shareId?: string) {
+  if (shareId && !ownerId) throw new Error("ownerId required for shared access");
+  return shareId ? ownerId! : uid;
+}
+
 export interface Project {
   _id: string;
   user_id: string;
@@ -185,9 +190,11 @@ export const fetchProject = async (
   ownerId?: string,
   shareId?: string,        
 ) => {
-  const query = buildQuery({ ownerId, shareId });   
+  const query = buildQuery({ ownerId, shareId });
+   // Se for share, o path tem de usar o ownerId
+  const pathUid = shareId ? (ownerId ?? uid) : uid;   
   const response = await api.get<SingleProject>(
-    `/projects/${uid}/${pid}${query}`,
+    `/projects/${pathUid}/${pid}${query}`,
     {
       headers: { Authorization: `Bearer ${token}` },
     },
@@ -314,8 +321,9 @@ export const getProjectImages = async (
   shareId?: string,
 ) => {
   const query = buildQuery({ ownerId, shareId });
+  const pathUid = pathUidFor(uid, ownerId, shareId);
   const response = await api.get<ProjectImage[]>(
-    `/projects/${uid}/${pid}/imgs${query}`,
+    `/projects/${pathUid}/${pid}/imgs${query}`,
     { headers: { Authorization: `Bearer ${token}` } },
   );
 
@@ -520,9 +528,10 @@ export const previewProjectImage = async ({
   runnerUserId: string;  
 }) => {
   const query = buildQuery({ ownerId, shareId });
+  const pathUid = pathUidFor(uid, ownerId, shareId);
   const response = await api.post(
-    `/projects/${uid}/${pid}/preview/${imageId}${query}`,
-    { runnerUserId },   // ✅ importante
+    `/projects/${pathUid}/${pid}/preview/${imageId}${query}`,
+    { runnerUserId },   // importante
     {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -550,13 +559,15 @@ export const addProjectTool = async ({
   projectVersion: number;
 }) => {
   const query = buildQuery({ ownerId, shareId });
+  const pathUid = pathUidFor(uid, ownerId, shareId);
   const response = await api.post(
-    `/projects/${uid}/${pid}/tool${query}`,
+    `/projects/${pathUid}/${pid}/tool${query}`,
     { ...tool },
     {
       headers: {
         Authorization: `Bearer ${token}`,
         "X-Project-Version": String(projectVersion),
+        "X-Op-Id": crypto.randomUUID(),
       },
     },
   );
@@ -666,8 +677,9 @@ export const updateProjectTool = async ({
   projectVersion: number;
 }) => {
   const query = buildQuery({ ownerId, shareId });
+  const pathUid = pathUidFor(uid, ownerId, shareId);
   const response = await api.put(
-    `/projects/${uid}/${pid}/tool/${toolId}${query}`,
+    `/projects/${pathUid}/${pid}/tool/${toolId}${query}`,
     {
       params: toolParams,
     },
@@ -675,6 +687,7 @@ export const updateProjectTool = async ({
       headers: {
         Authorization: `Bearer ${token}`,
         "X-Project-Version": String(projectVersion),
+        "X-Op-Id": crypto.randomUUID(),
       },
     },
   );
@@ -710,6 +723,7 @@ export const deleteProjectTool = async ({
     headers: {
       Authorization: `Bearer ${token}`,
       "X-Project-Version": String(projectVersion),
+      "X-Op-Id": crypto.randomUUID(),
     },
   });
 
@@ -736,14 +750,16 @@ export const clearProjectTools = async ({
   projectVersion: number;
 }) => {
   const query = buildQuery({ ownerId, shareId });
+  const pathUid = pathUidFor(uid, ownerId, shareId);
 
   const resp = await api.post(
-    `/projects/${uid}/${pid}/clear${query}`,
+    `/projects/${pathUid}/${pid}/clear${query}`,
     {},
     {
       headers: {
         Authorization: `Bearer ${token}`,
         "X-Project-Version": String(projectVersion),
+        "X-Op-Id": crypto.randomUUID(),
       },
     },
   );
@@ -803,6 +819,7 @@ export const fetchProjectResults = async (
 
 ) => {
   const query = buildQuery({ ownerId, shareId });
+  const pathUid = pathUidFor(uid, ownerId, shareId);
   const response = await api.get<{
     imgs: {
       og_img_id: string;
@@ -814,7 +831,7 @@ export const fetchProjectResults = async (
       name: string;
       url: string;
     }[];
-  }>(`/projects/${uid}/${pid}/process/url${query}`, {
+  }>(`/projects/${pathUid}/${pid}/process/url${query}`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -871,9 +888,10 @@ export const processProject = async ({
 }) => {
   try {
     const query = buildQuery({ ownerId, shareId });
+    const pathUid = pathUidFor(uid, ownerId, shareId);
     const response = await api.post<string>(
-      `/projects/${uid}/${pid}/process${query}`,
-      { runnerUserId },   // ✅ importante
+      `/projects/${pathUid}/${pid}/process${query}`,
+      { runnerUserId },   // importante
       { 
         headers: {
           Authorization: `Bearer ${token}`,
@@ -933,6 +951,7 @@ export const processProject = async ({
         headers: {
           Authorization: `Bearer ${token}`,
           "X-Project-Version": String(projectVersion),
+          "X-Op-Id": crypto.randomUUID(),
         },
       },
     );

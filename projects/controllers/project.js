@@ -72,7 +72,7 @@ module.exports.updateIfVersion = async (user_id, project_id, project, expectedVe
   const raw = project.toObject ? project.toObject() : project;
 
   // remove campos que não se quer "setar"
-  const { _id, user_id: _uid, version, __v, ...rest } = raw;
+  const { _id, user_id: _uid, version, __v, sharedLinks, ...rest } = raw;
 
   return await Project.findOneAndUpdate(
     { user_id: user_id, _id: project_id, version: expectedVersion },

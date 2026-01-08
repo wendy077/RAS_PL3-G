@@ -90,6 +90,15 @@ function process_msg() {
             io.to(user).emit("process-update", msg_id);
         }
 
+        else if (msg_content.type === "project-op") {
+            const projectId = msg_content.projectId;
+            const op = msg_content.op;
+
+            if (projectId && op) {
+                io.to(`project:${projectId}`).emit("project-op", { projectId, op });
+            }
+            }
+
         //  project updated
         else if (/project-updated/.test(msg_id) || msg_content.type === "project-updated") {
             const projectId = msg_content.projectId;

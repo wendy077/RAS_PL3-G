@@ -23,6 +23,7 @@ const {
   send_msg_client_preview,
   send_msg_client_preview_error,
   read_msg,
+  send_msg_project_op,   
 } = require("../utils/project_msg");
 
 const Project = require("../controllers/project");
@@ -1197,6 +1198,21 @@ router.post("/:user/:project/tool", checkSharePermission, requireEditPermission,
           }
 
           res.set("X-Project-Version", String(updated.version));
+
+          // evento para co-edição
+          send_msg_project_op({
+            projectId: req.params.project,
+            ownerId: req.params.user,
+            op: {
+              opId: req.headers["x-op-id"] || null,
+              type: "TOOL_ADDED",
+              actorId: getCallerId(req),
+              baseVersion: req.expectedVersion,
+              newVersion: updated.version,
+              payload: { tool }, // tool criado acima
+            },
+          });
+
           return res.sendStatus(204);
         })
         .catch(() => res.status(501).jsonp(`Error acquiring user's project`));
@@ -1239,6 +1255,20 @@ router.post(
         }
 
         res.set("X-Project-Version", String(updated.version));
+
+        send_msg_project_op({
+          projectId: req.params.project,
+          ownerId: req.params.user,
+          op: {
+            opId: req.headers["x-op-id"] || null,
+            type: "TOOLS_REORDERED",
+            actorId: getCallerId(req),
+            baseVersion: req.expectedVersion,
+            newVersion: updated.version,
+            payload: { tools: project.tools }, // já com positions
+          },
+        });
+
         return res.sendStatus(204);
       })
       .catch(() => res.status(501).jsonp(`Error acquiring user's project`));
@@ -1551,6 +1581,23 @@ router.put(
           }
 
           res.set("X-Project-Version", String(updated.version));
+
+          send_msg_project_op({
+            projectId: req.params.project,
+            ownerId: req.params.user,
+            op: {
+              opId: req.headers["x-op-id"] || null,
+              type: "TOOL_UPDATED",
+              actorId: getCallerId(req),
+              baseVersion: req.expectedVersion,
+              newVersion: updated.version,
+              payload: {
+                toolId: req.params.tool,
+                params: req.body.params,
+              },
+            },
+          });
+
           return res.sendStatus(204);
         } catch (_) {
           return res.status(599).jsonp(`Error updating tool. Make sure such tool exists`);
@@ -1707,6 +1754,20 @@ router.delete(
           }
 
           res.set("X-Project-Version", String(updated.version));
+
+          send_msg_project_op({
+            projectId: req.params.project,
+            ownerId: req.params.user,
+            op: {
+              opId: req.headers["x-op-id"] || null,
+              type: "TOOL_REMOVED",
+              actorId: getCallerId(req),
+              baseVersion: req.expectedVersion,
+              newVersion: updated.version,
+              payload: { toolId: req.params.tool },
+            },
+          });
+
           return res.sendStatus(204);
         } catch (_) {
           return res.status(400).jsonp(`Error deleting tool's information`);
@@ -1776,6 +1837,20 @@ router.post(
       }
 
       res.set("X-Project-Version", String(updated.version));
+
+      send_msg_project_op({
+        projectId: req.params.project,
+        ownerId: req.params.user,
+        op: {
+          opId: req.headers["x-op-id"] || null,
+          type: "PROJECT_CLEARED",
+          actorId: getCallerId(req),
+          baseVersion: req.expectedVersion,
+          newVersion: updated.version,
+          payload: {},
+        },
+      });
+
       return res.sendStatus(204);
     } catch (err) {
       console.error("Error clearing project:", err);
