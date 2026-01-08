@@ -55,57 +55,68 @@ export function UpgradeDialog({
     setBillingCycleValue(billingCycle);
   }, [billingCycle]);
 
-  useEffect(() => {
-    const cardNumberRegex = /^[0-9]{16}$/; // Exactly 16 digits
-    const expirationDateRegex = /^(0[1-9]|1[0-2])\/\d{2}$/; // MM/YY format
-    const cvcRegex = /^[0-9]{3,4}$/; // 3-4 digits
-    const nameRegex = /^[a-zA-Z\s]+$/; // Letters and spaces
+useEffect(() => {
+  const cleanCardNumber = cardNumber.replace(/\D/g, ""); // permite espaços
+  const cleanExpiry = expirationDate.replace(/\D/g, ""); // permite 0326
 
-    if (cardNumber === "") {
-      setError("Card number is required");
-    } else if (!cardNumberRegex.test(cardNumber)) {
-      setError("Invalid card number. It must be exactly 16 digits.");
-    } else if (!validator.isCreditCard(cardNumber)) {
-      setError("Invalid card number.");
-    } else if (expirationDate === "") {
-      setError("Expiration date is required");
-    } else if (!expirationDateRegex.test(expirationDate)) {
-      setError("Invalid expiration date. Use MM/YY format.");
+  const expirationDateRegex = /^(0[1-9]|1[0-2])\/\d{2}$/;
+  const cvcRegex = /^[0-9]{3,4}$/;
+  const nameRegex = /^[a-zA-Z\s]+$/;
+
+  // normalizar expiry para MM/YY
+  let normalizedExpiry = expirationDate;
+  if (cleanExpiry.length === 4) {
+    normalizedExpiry = `${cleanExpiry.slice(0, 2)}/${cleanExpiry.slice(2)}`;
+  }
+
+  if (cleanCardNumber === "") {
+    setError("Card number is required");
+  } else if (cleanCardNumber.length !== 16) {
+    setError("Invalid card number. It must be exactly 16 digits.");
+  } else if (normalizedExpiry === "") {
+    setError("Expiration date is required");
+  } else if (!expirationDateRegex.test(normalizedExpiry)) {
+    setError("Invalid expiration date. Use MM/YY format.");
+  } else {
+    const [month, year] = normalizedExpiry.split("/");
+    const currentYear = new Date().getFullYear() % 100;
+    const currentMonth = new Date().getMonth() + 1;
+
+    if (
+      parseInt(year) < currentYear ||
+      (parseInt(year) === currentYear && parseInt(month) < currentMonth)
+    ) {
+      setError("Expiration date is in the past");
+    } else if (cvc === "") {
+      setError("CVC is required");
+    } else if (!cvcRegex.test(cvc)) {
+      setError("Invalid CVC. It must be 3 or 4 digits.");
+    } else if (cardholderName === "") {
+      setError("Cardholder name is required");
+    } else if (!nameRegex.test(cardholderName)) {
+      setError("Invalid cardholder name. Use only letters and spaces.");
     } else {
-      // Validate expiration date is not in the past
-      const [month, year] = expirationDate.split("/");
-      const currentYear = new Date().getFullYear() % 100; // Last two digits of current year
-      const currentMonth = new Date().getMonth() + 1; // 0-based index
-      if (
-        parseInt(year) < currentYear ||
-        (parseInt(year) === currentYear && parseInt(month) < currentMonth)
-      ) {
-        setError("Expiration date is in the past");
-      } else if (cvc === "") {
-        setError("CVC is required");
-      } else if (!cvcRegex.test(cvc)) {
-        setError("Invalid CVC. It must be 3 or 4 digits.");
-      } else if (cardholderName === "") {
-        setError("Cardholder name is required");
-      } else if (!nameRegex.test(cardholderName)) {
-        setError("Invalid cardholder name. Use only letters and spaces.");
-      } else {
-        setError(null); // All validations passed
-      }
+      setError(null);
     }
-  }, [cardNumber, expirationDate, cvc, cardholderName]);
+  }
+}, [cardNumber, expirationDate, cvc, cardholderName]);
 
   function handleSubmit() {
     setShowError(true);
     if (error) return;
 
     setIsSubmitting(true);
-    const [month, year] = expirationDate.split("/");
+    const cleanCardNumber = cardNumber.replace(/\D/g, "");
+    const cleanExpiry = expirationDate.replace(/\D/g, "");
+    const normalizedExpiry =
+      cleanExpiry.length === 4 ? `${cleanExpiry.slice(0, 2)}/${cleanExpiry.slice(2)}` : expirationDate;
+
+    const [month, year] = normalizedExpiry.split("/");
     subscribe.mutate(
       {
         card: {
           cardHolderName: cardholderName,
-          cardNumber: cardNumber,
+          cardNumber: cleanCardNumber,
           expiryMonth: month,
           expiryYear: year,
           cvc: parseInt(cvc),

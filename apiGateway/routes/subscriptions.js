@@ -142,9 +142,9 @@ router.post("/", async function (req, res, next) {
       }
     } catch (subscriptionError) {
       // Handle errors during subscription creation
-      return res
-        .status(500)
-        .jsonp({ error: "Failed to create subscription." });
+      const status = subscriptionError.response?.status || 500;
+      const data = subscriptionError.response?.data || { error: "Failed to create subscription." };
+      return res.status(status).jsonp(data);
     }
   });
   

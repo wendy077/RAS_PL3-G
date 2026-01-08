@@ -13,12 +13,11 @@ function validateCreditCard(cardNumber, expireMonth, expireYear, cvc) {
 	const expiryDate = `${expireMonth}/${expireYear}`;
 	console.log(expiryDate);
     // Validate card number
-    if (!validator.isCreditCard(cardNumber)) {
-        return {
-            success: false,
-            message: 'Invalid credit card number.'
-        };
-    }
+    const clean = String(cardNumber).replace(/\D/g, "");
+        if (!/^\d{16}$/.test(clean)) {
+            return { success: false, message: "Invalid card number. It must be exactly 16 digits." };
+        }
+
 
     // Validate expiry date (basic MM/YY check)
     const expiryRegex = /^(0[1-9]|1[0-2])\/(\d{2})$/;
@@ -144,34 +143,29 @@ router.get('/:user/card', function(req, res, next) {
 **/
 
 // Subscribe to a plan 
-router.post('/', async function (req, res, next) {
-    try {
-        // Create the subscription
-        const subscription = await Subscriptions.create(req.body.subscription);
+router.post("/", async (req, res) => {
+  try {
+    const validation = validateCreditCard(
+      req.body.card.cardNumber,
+      req.body.card.expiryMonth,
+      req.body.card.expiryYear,
+      req.body.card.cvc
+    );
 
-        // Validate the credit card
-        const validation = validateCreditCard(
-            req.body.card.cardNumber,
-            req.body.card.expiryMonth,
-            req.body.card.expiryYear,
-            req.body.card.cvc
-        );
-
-        if (validation.success) {
-            // If validation passes, create the card
-            await Cards.create(req.body.card, subscription._id);
-            return res.status(200).jsonp(subscription);
-        } else {
-            // If validation fails, delete the subscription
-            await Subscriptions.deleteOne(subscription._id);
-            return res.status(500).jsonp({ error: validation.message });
-        }
-    } catch (err) {
-        // Handle errors
-        console.error('Error processing subscription:', err);
-        return res.status(500).jsonp({ error: 'Internal server error' });
+    if (!validation.success) {
+      return res.status(400).jsonp({ error: validation.message });
     }
+
+    const subscription = await Subscriptions.create(req.body.subscription);
+    await Cards.create(req.body.card, subscription._id);
+
+    return res.status(201).jsonp(subscription);
+  } catch (err) {
+    console.error("Error processing subscription:", err);
+    return res.status(500).jsonp({ error: "Internal server error" });
+  }
 });
+
 
 
 /////////
