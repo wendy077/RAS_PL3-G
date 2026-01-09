@@ -1144,6 +1144,8 @@ router.post("/:user/:project/preview/:img", checkSharePermission, requireEditPer
         og_img_uri: og_img_uri,
         new_img_uri: new_img_uri,
         cache_key: cacheKey,
+        cancelToken: project.cancelToken || 0,
+        token: project.activeToken || 0,
       };
 
       Process.create(process)
@@ -1158,9 +1160,10 @@ router.post("/:user/:project/preview/:img", checkSharePermission, requireEditPer
           );
           res.sendStatus(201);
         })
-        .catch(() =>
-          res.status(603).jsonp(`Error creating preview process request`)
-        );
+        .catch((err) => {
+          console.error("[PREVIEW][Process.create] error:", err);
+          return res.status(500).jsonp("Error creating preview process request");
+        });
     })
     .catch(() => res.status(501).jsonp(`Error acquiring user's project`));
 });

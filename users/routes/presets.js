@@ -6,6 +6,8 @@ const auth = require("../auth/auth");
 const User = require("../controllers/user");
 const Presets = require("../controllers/presets");
 
+const pctToFactor = (v) => 1 + (v / 100);
+
 /**
  * DEFAULT PRESETS (predefinidos)
  * - Mantém isto pequeno (3-6 presets) para a UI.
@@ -16,9 +18,9 @@ const DEFAULT_PRESETS = [
     id: "default-vintage",
     name: "Vintage Suave",
     tools: [
-      { procedure: "contrast", params: { contrast: -8 } },
-      { procedure: "saturation", params: { saturation: -10 } },
-      { procedure: "brightness", params: { brightness: 6 } },
+      { procedure: "contrast", params: { contrastFactor: pctToFactor(-8) } },
+      { procedure: "saturation", params: { saturationFactor: pctToFactor(-10) } },
+      { procedure: "brightness", params: { brightness: pctToFactor(6) } },
     ],
     isDefault: true,
   },
@@ -26,8 +28,8 @@ const DEFAULT_PRESETS = [
     id: "default-pop",
     name: "Pop (Mais cor)",
     tools: [
-      { procedure: "contrast", params: { contrast: 12 } },
-      { procedure: "saturation", params: { saturation: 14 } },
+      { procedure: "contrast", params: { contrastFactor: pctToFactor(12) } },
+      { procedure: "saturation", params: { saturationFactor: pctToFactor(14) } },
     ],
     isDefault: true,
   },
@@ -36,7 +38,7 @@ const DEFAULT_PRESETS = [
     name: "Preto & Branco",
     tools: [
       { procedure: "binarization", params: { threshold: 128 } },
-      { procedure: "contrast", params: { contrast: 8 } },
+      { procedure: "contrast", params: { contrastFactor: pctToFactor(8) } },
     ],
     isDefault: true,
   },
