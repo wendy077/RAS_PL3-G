@@ -5,7 +5,12 @@ import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-ki
 import { SortableToolItem } from "./sortable-tool-item";
 import { useProjectInfo, useSetProjectTools, useCurrentImage } from "@/providers/project-provider";
 import { useSession } from "@/providers/session-provider";
-import { useReorderProjectTools, useDeleteProjectTool, useClearProjectTools, usePreviewProjectResult } from "@/lib/mutations/projects";
+import {
+  useReorderProjectTools,
+  useDeleteProjectTool,
+  useClearProjectTools,
+  usePreviewProjectResult
+} from "@/lib/mutations/projects";
 import { useToast } from "@/hooks/use-toast";
 import { useSearchParams } from "next/navigation";
 import { getErrorMessage } from "@/lib/error-messages";
@@ -13,16 +18,16 @@ import { Undo2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useQueryClient } from "@tanstack/react-query";
 
-
 export function AppliedToolsList() {
   const project = useProjectInfo();
   const setTools = useSetProjectTools();
   const session = useSession();
   const searchParams = useSearchParams();
   const mode = searchParams.get("mode") ?? "edit";
-  const ownerParam = searchParams.get("owner") ?? session.user._id; 
-  const qc = useQueryClient();
+  const ownerParam = searchParams.get("owner") ?? session.user._id;
   const shareId = searchParams.get("share") ?? undefined;
+
+  const qc = useQueryClient();
 
   const reorder = useReorderProjectTools(
     session.user._id,
@@ -63,7 +68,21 @@ export function AppliedToolsList() {
   const currentImage = useCurrentImage();
   const imageId = currentImage?._id;
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 }}));
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const resultsQueryKey = [
+    "projectResults",
+    session.user._id,
+    project._id,
+    session.token,
+    ownerParam,
+    shareId
+  ];
+
+  function clearResultsCache() {
+    // remove imediatamente o que está a ser mostrado em "mode results"
+    qc.removeQueries({ queryKey: resultsQueryKey });
+  }
 
   function handleDragEnd(event: any) {
     const { active, over } = event;
@@ -74,7 +93,6 @@ export function AppliedToolsList() {
 
     const sorted = arrayMove(tools, oldIndex, newIndex);
 
-    // garantir que o backend vê a nova ordem
     const withPositions = sorted.map((t, index) => ({
       ...t,
       position: index,
@@ -85,12 +103,13 @@ export function AppliedToolsList() {
 
     const opId = crypto.randomUUID();
 
-    // update backend positions
     reorder.mutate(
       { tools: withPositions, projectVersion: project.version, opId },
       {
         onSuccess: () => {
-          // T-06: "atualização imediata" => reaplicar sequência e atualizar preview
+          // reorder também invalida resultados (a pipeline mudou)
+          clearResultsCache();
+
           if (mode === "edit" && imageId) {
             preview.mutate({
               imageId,
@@ -98,7 +117,6 @@ export function AppliedToolsList() {
             });
           }
         },
-
         onError: (error) => {
           console.error("Erro ao reordenar:", error);
           const { title, description } = getErrorMessage("project-update", error);
@@ -123,6 +141,14 @@ export function AppliedToolsList() {
       {
         onSuccess: () => {
           setTools(tools.filter((t) => t._id !== id));
+
+          // pipeline mudou => resultados atuais já não servem
+          clearResultsCache();
+
+          // se estiver em edit, podes forçar preview (opcional)
+          if (mode === "edit" && imageId) {
+            preview.mutate({ imageId, projectVersion: project.version });
+          }
         },
         onError: (error) => {
           const { title, description } = getErrorMessage("project-update", error);
@@ -130,97 +156,86 @@ export function AppliedToolsList() {
         },
       }
     );
-}
-
-function handleUndo() {
-  if (tools.length === 0) {
-    toast({
-      title: "Nada para reverter",
-      description: "Ainda não aplicaste nenhuma edição nesta sessão.",
-    });
-    return;
   }
 
-  const lastTool = tools[tools.length - 1];
-  const opId = crypto.randomUUID();
+  function handleUndo() {
+    if (tools.length === 0) {
+      toast({
+        title: "Nada para reverter",
+        description: "Ainda não aplicaste nenhuma edição nesta sessão.",
+      });
+      return;
+    }
 
-  deleteTool.mutate(
-    {
-      toolId: lastTool._id,
-      projectVersion: project.version,
-      opId,
-    },
-    {
-      onSuccess: () => {
-        const updated = tools.slice(0, -1);
-        setTools(updated);
+    const lastTool = tools[tools.length - 1];
+    const opId = crypto.randomUUID();
 
-        // Só pedir preview se ainda houver tools
-        if (imageId && updated.length > 0) {
-          preview.mutate({
-            imageId,
-            projectVersion: project.version,
+    deleteTool.mutate(
+      {
+        toolId: lastTool._id,
+        projectVersion: project.version,
+        opId,
+      },
+      {
+        onSuccess: () => {
+          const updated = tools.slice(0, -1);
+          setTools(updated);
+
+          // pipeline mudou => limpar results 
+          clearResultsCache();
+
+          // preview (edit mode)
+          if (mode === "edit" && imageId) {
+            // se não houver tools, não faz sentido preview com pipeline vazia
+            if (updated.length > 0) {
+              preview.mutate({ imageId, projectVersion: project.version });
+            }
+          }
+        },
+        onError: (error) => {
+          const { title, description } = getErrorMessage("project-update", error);
+          toast({ title, description, variant: "destructive" });
+        },
+      },
+    );
+  }
+
+  function handleReset() {
+    if (tools.length === 0) {
+      toast({
+        title: "Nada para limpar",
+        description: "Este projeto já está na versão original.",
+      });
+      return;
+    }
+
+    const ids = tools.map((t) => t._id);
+    const opId = crypto.randomUUID();
+
+    clearTools.mutate(
+      { toolIds: ids, projectVersion: project.version, opId },
+      {
+        onSuccess: () => {
+          setTools([]);
+
+          // pipeline mudou => limpar results 
+          clearResultsCache();
+
+          toast({
+            title: "Edições removidas",
+            description: "A imagem voltou à versão original.",
           });
-        }
-
-        qc.invalidateQueries({
-          queryKey: [
-            "projectResults",
-            session.user._id,
-            project._id,
-            session.token,
-            ownerParam,
-            shareId
-          ],
-        });
+        },
+        onError: (error) => {
+          const { title, description } = getErrorMessage("project-update", error);
+          toast({ title, description, variant: "destructive" });
+        },
       },
-    },
-  );
-}
-
-function handleReset() {
-  if (tools.length === 0) {
-    toast({
-      title: "Nada para limpar",
-      description: "Este projeto já está na versão original.",
-    });
-    return;
+    );
   }
-
-  const ids = tools.map((t) => t._id);
-  const opId = crypto.randomUUID();
-
-  clearTools.mutate(
-    { toolIds: ids, projectVersion: project.version, opId},
-    {
-      onSuccess: () => {
-        setTools([]);
-
-        // Não chamamos preview quando já não há tools
-        // (a imagem original já existe, apenas não estamos a forçar re-render do preview)
-        qc.invalidateQueries({
-          queryKey: [
-            "projectResults",
-            session.user._id,
-            project._id,
-            session.token,
-            ownerParam,
-            shareId
-          ],
-        });
-
-        toast({
-          title: "Edições removidas",
-          description: "A imagem voltou à versão original.",
-        });
-      },
-    },
-  );
-}
 
   return (
     <div className="mt-3 flex w-full flex-col gap-2">
-
       <div className="flex items-center justify-between">
         <span className="text-xs text-gray-500">Applied</span>
 

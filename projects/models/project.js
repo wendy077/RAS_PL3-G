@@ -20,6 +20,14 @@ const projectSchema = new mongoose.Schema({
   imgs: { type: [imgSchema], default: [] },
   tools: { type: [toolSchema], default: [] },
   version: { type: Number, default: 0 },
+  activeToken: { type: Number, default: 0 },
+  resultsToken: { type: Number, default: 0 },
+  cancelToken: { type: Number, default: 0 },
+  committedToken: { type: Number, default: 0 },
+  prevCommittedToken: { type: Number, default: 0 },
+  committedTools: { type: Array, default: [] },        // snapshot das tools do último commit
+  prevCommittedTools: { type: Array, default: [] },    // snapshot anterior para rollback (se o run cancelado chegou a commitar)
+  
   dirty: { type: Boolean, default: false },
   dirtyUpdatedAt: { type: Date, default: null }, // opcional
   dirtyBy: { type: mongoose.Schema.Types.ObjectId, default: null }, // opcional

@@ -1,4 +1,5 @@
 var Project = require("../models/project");
+const ProjectModel = require("../models/project");
 
 // DELETE condicional por versão
 module.exports.deleteIfVersion = async (user_id, project_id, expectedVersion) => {
@@ -80,3 +81,11 @@ module.exports.updateIfVersion = async (user_id, project_id, project, expectedVe
     { new: true } // devolve documento já com versão incrementada
   ).exec();
 };
+
+module.exports.updateRaw = async (user_id, project_id, update) => {
+  return await ProjectModel.updateOne(
+    { user_id, _id: project_id },
+    update
+  ).exec();
+};
+

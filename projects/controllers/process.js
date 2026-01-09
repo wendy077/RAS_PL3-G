@@ -40,3 +40,8 @@ module.exports.delete = (user_id, project_id, process_id) => {
     _id: process_id,
   });
 };
+
+module.exports.countByProjectAndToken = async (project_id, token) => {
+  return await Process.countDocuments({ project_id, token }).exec();
+};
+

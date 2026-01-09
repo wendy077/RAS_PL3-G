@@ -124,18 +124,23 @@ function advanced_tool_num(project) {
 // TODO process message according to type of output
 function process_msg() {
   read_msg(async (msg) => {
+
+    const timestamp = new Date().toISOString();
+    const user_msg_id = `update-client-process-${uuidv4()}`;
+
+    // variáveis “seguras” para usar no catch
+    let runnerIdSafe = null;
+    let ownerIdSafe = null;
+
     try {
       const msg_content = JSON.parse(msg.content.toString());
       const msg_id = msg_content.correlationId;
-      const timestamp = new Date().toISOString();
-
-      const user_msg_id = `update-client-process-${uuidv4()}`;
 
       const process = await Process.getOneByMsgId(msg_id);
+      if (!process) return;
 
-      if (!process) {
-        return;
-      }
+      ownerIdSafe = process.user_id;
+      runnerIdSafe = process.runner_id || process.user_id;
 
        console.log(
         `[T-03][RABBIT] msg=${msg_id} status=${msg_content.status} outType=${msg_content?.output?.type} curPos=${process.cur_pos} key=${(process.cache_key||"").slice(0,8)}`
@@ -175,6 +180,19 @@ function process_msg() {
       const type = msg_content.output.type;
       const project = await Project.getOne(process.user_id, process.project_id);
 
+      // Guard robusto: se o utilizador cancelou, activeToken muda e ignoramos outputs deste run
+      const active = project.activeToken || 0;
+      const tok = process.token || 0;
+
+      console.log(
+        `[RUN-DEBUG] msg=${msg_id} curPos=${process.cur_pos} processTok=${tok} activeTok=${active}`
+      );
+
+      if (active !== tok) {
+        console.log(`[RUN-GUARD] IGNORE msg=${msg_id} processTok=${tok} activeTok=${active}`);
+        return;
+      }
+
       const next_pos = process.cur_pos + 1;
 
 if (/preview/.test(msg_id) && (type == "text" || next_pos >= project.tools.length)) {
@@ -207,7 +225,7 @@ if (/preview/.test(msg_id) && (type == "text" || next_pos >= project.tools.lengt
   await Preview.create(preview);
 
   // considerar "preview final" quando:
-  // - a tool devolveu texto (tipicamente o fim), OU
+  // - a tool devolveu texto (tipicamente o fim), ou quando
   // - chegámos ao fim do pipeline
   if (type == "text" || next_pos >= project.tools.length) {
     const previews = await Preview.getAll(process.user_id, process.project_id);
@@ -223,7 +241,7 @@ if (/preview/.test(msg_id) && (type == "text" || next_pos >= project.tools.lengt
       } catch (e) {
         copiedOk = false;
           console.error(`[T-03][CACHE-COPY][FAIL] key=${key8} file=${p.img_key} err=${e.message}`);
-        // não faças crash — mas atenção: se falhar, o HIT futuro pode dar 404
+        // não crash — mas atenção: se falhar, o HIT futuro pode dar 404
       }
     }
 
@@ -247,7 +265,7 @@ if (/preview/.test(msg_id) && (type == "text" || next_pos >= project.tools.lengt
       else urls.textResults.push(url);
     }
 
-    // ✅ métricas de duração (se timestamps ativos no Process)
+    // métricas de duração (se timestamps ativos no Process)
     const startedAt = process.createdAt ? new Date(process.createdAt).getTime() : null;
     const durationMs = startedAt ? (Date.now() - startedAt) : null;
 
@@ -255,7 +273,7 @@ if (/preview/.test(msg_id) && (type == "text" || next_pos >= project.tools.lengt
       `[T-03][RABBIT][PREVIEW-DONE] msg=${msg_id} key=${(process.cache_key||"").slice(0,8)} previews=${previews.length} durationMs=${durationMs}`
     );
 
-    // ✅ grava cache do preview final (image + texts + duration)
+    // grava cache do preview final (image + texts + duration)
     // (se cache_key não existir por algum motivo, não crashes)
     if (process.cache_key) {
       const imgSha =
@@ -280,7 +298,7 @@ if (/preview/.test(msg_id) && (type == "text" || next_pos >= project.tools.lengt
       );
     }
 
-    // ✅ envia preview ao cliente
+    // envia preview ao cliente
     send_msg_client_preview(
       `update-client-preview-${uuidv4()}`,
       timestamp,
@@ -329,9 +347,58 @@ if (/preview/.test(msg_id) && (type == "text" || next_pos >= project.tools.lengt
           img_id: img_id,
           project_id: process.project_id,
           user_id: process.user_id,
+          token: process.token || 0, 
         };
 
         await Result.create(result);
+      }
+
+      // Se esta imagem acabou o pipeline, pode ser que a execução tenha terminado
+      if (!/preview/.test(msg_id) && (type == "text" || next_pos >= project.tools.length)) {
+
+        // Já eliminei este Process no início: await Process.delete(...)
+        // Agora verifica se ainda há processos desta run
+        const remaining = await Process.countByProjectAndToken(
+          process.project_id,
+          process.token || 0
+        );
+
+        if (remaining === 0) {
+          // re-fetch do projeto (já tens project) mas garante que está fresh
+          const freshProject = await Project.getOne(process.user_id, process.project_id);
+
+          // só commita se ainda for a execução ativa (não foi cancelada entretanto)
+          if ((freshProject.activeToken || 0) === (process.token || 0)) {
+            freshProject.committedToken = process.token || 0;
+
+            //  guardar também resultsToken se ainda uso noutros sítios
+            freshProject.resultsToken = freshProject.committedToken;
+
+            const toolsSnapshot = [...(freshProject.tools || [])]
+              .sort((a,b) => (a.position ?? 0) - (b.position ?? 0))
+              .map(t => ({
+                _id: t._id,
+                position: t.position,
+                procedure: t.procedure,
+                params: t.params,
+              }));
+
+            await Project.updateRaw(process.user_id, process.project_id, { 
+              $set: {
+                committedToken: process.token || 0,
+                resultsToken: process.token || 0,
+                committedTools: toolsSnapshot,
+              }
+            });
+
+            console.log(`[COMMIT] project=${process.project_id} committedToken=${process.token || 0}`);
+
+          } else {
+            console.log(
+              `[COMMIT-SKIP] project=${process.project_id} token=${process.token} activeToken=${freshProject.activeToken}`
+            );
+          }
+        }
       }
 
       if (next_pos >= project.tools.length) return;
@@ -348,6 +415,9 @@ if (/preview/.test(msg_id) && (type == "text" || next_pos >= project.tools.lengt
       const read_img = type == "text" ? prev_process_input_img : output_file_uri;
       const output_img = type == "text" ? prev_process_output_img : output_file_uri;
 
+      // o token de cancelamento que vai ser propagado para o successor
+      const processToken = process.cancelToken || 0;
+
       const new_process = {
         user_id: project.user_id,
         runner_id: runnerId,       
@@ -357,6 +427,8 @@ if (/preview/.test(msg_id) && (type == "text" || next_pos >= project.tools.lengt
         cur_pos: next_pos,
         og_img_uri: read_img,
         new_img_uri: output_img,
+        cancelToken: processToken,
+        token: process.token,
       };
 
       // Making sure database entry is created before sending message to avoid conflicts
@@ -369,11 +441,16 @@ if (/preview/.test(msg_id) && (type == "text" || next_pos >= project.tools.lengt
         tool_name,
         params
       );
-    } catch (_) {
+    } catch (err) {
+
+      console.error("[process_msg] error:", err);
+
+      const target = runnerIdSafe || ownerIdSafe;
+
       send_msg_client_error(
         user_msg_id,
         timestamp,
-        process.user_id,
+        target,
         "30000",
         "An error happened while processing the project"
       );
@@ -431,7 +508,6 @@ router.get("/:user/:project/share", requireOwner, async (req, res) => {
     return res.status(500).jsonp("Error listing shared links");
   }
 });
-
 
 // criar um novo link de partilha
 router.post("/:user/:project/share", requireOwner, enforcePresenceLimit, requireProjectVersion, async (req, res) => {
@@ -553,7 +629,8 @@ router.get("/share/:shareId/project", requireAuth,async (req, res) => {
     };
 
     // tentar usar resultados mais recentes
-    const results = await Result.getAll(project.user_id, project._id);
+    const committed = project.committedToken || 0;
+    const results = await Result.getAllByToken(project.user_id, project._id, committed);
     const imageResults = results.filter((r) => r.type !== "text");
 
     if (imageResults.length > 0) {
@@ -802,11 +879,12 @@ router.get("/:user/:project/imgs", checkSharePermission, async (req, res, next) 
 // Get results of processing a project
 router.get("/:user/:project/process", checkSharePermission, (req, res, next) => {
   // Getting last processed request from project in order to get their result's path
-
   Project.getOne(req.params.user, req.params.project)
     .then(async (_) => {
       const zip = new JSZip();
-      const results = await Result.getAll(req.params.user, req.params.project);
+      const project = await Project.getOne(req.params.user, req.params.project);
+      const committed = project.committedToken || 0;
+      const results = await Result.getAllByToken(req.params.user, req.params.project, committed);
 
       const result_path = `/../images/users/${req.params.user}/projects/${req.params.project}/tmp`;
 
@@ -859,37 +937,28 @@ router.get("/:user/:project/process", checkSharePermission, (req, res, next) => 
 
 
 // Get results of processing a project
-router.get("/:user/:project/process/url", checkSharePermission, (req, res, next) => {
-  // Getting last processed request from project in order to get their result's path
+router.get("/:user/:project/process/url", checkSharePermission, async (req, res) => {
+  try {
+    const project = await Project.getOne(req.params.user, req.params.project);
+    const committed = project.committedToken || 0;
 
-  Project.getOne(req.params.user, req.params.project)
-    .then(async (_) => {
-      const ans = {
-        'imgs': [],
-        'texts': []
-      };
-      const results = await Result.getAll(req.params.user, req.params.project);
+    const results = await Result.getAllByToken(req.params.user, req.params.project, committed);
 
-      for (let r of results) {
-        const resp = await get_image_host(
-          r.user_id,
-          r.project_id,
-          "out",
-          r.img_key
-        );
-        const url = resp.data.url;
+    const ans = { imgs: [], texts: [] };
+    for (const r of results) {
+      const resp = await get_image_host(r.user_id, r.project_id, "out", r.img_key);
+      const url = resp.data.url;
 
-        if(r.type == 'text') ans.texts.push({ og_img_id : r.img_id, name: r.file_name, url: url })
+      if (r.type === "text") ans.texts.push({ og_img_id: r.img_id, name: r.file_name, url });
+      else ans.imgs.push({ og_img_id: r.img_id, name: r.file_name, url });
+    }
 
-        else ans.imgs.push({ og_img_id : r.img_id, name: r.file_name, url: url })
-      }
-
-      res.status(200).jsonp(ans);
-    })
-    .catch((_) =>
-      res.status(601).jsonp(`Error acquiring project's processing result`)
-    );
+    return res.status(200).jsonp(ans);
+  } catch (e) {
+    return res.status(601).jsonp("Error acquiring project's processing result");
+  }
 });
+
 
 
 // Get number of advanced tools used in a project
@@ -1290,12 +1359,7 @@ router.post("/:user/:project/process", checkSharePermission, requireEditPermissi
   Project.getOne(ownerId, req.params.project)
     .then(async (project) => {
       try {
-        // apagar resultados anteriores 
-        const prev_results = await Result.getAll(ownerId, req.params.project);
-        for (let r of prev_results) {
-          await delete_image(ownerId, req.params.project, "out", r.img_key);
-          await Result.delete(r.user_id, r.project_id, r.img_id);
-        }
+
       } catch (_) {
         res.status(400).jsonp("Error deleting previous results");
         return;
@@ -1317,6 +1381,8 @@ router.post("/:user/:project/process", checkSharePermission, requireEditPermissi
         "newTools:", newTools,
         "tools:", project.tools.map((t) => t.procedure)
       );
+
+      let runToken = null;
 
       // função local com a lógica de "arrancar processamento"
       const startProcessing = async () => {
@@ -1384,6 +1450,8 @@ router.post("/:user/:project/process", checkSharePermission, requireEditPermissi
             cur_pos: 0,
             og_img_uri: og_img_uri,
             new_img_uri: new_img_uri,
+            cancelToken: project.cancelToken || 0,
+            token: runToken,
           };
 
           await Process.create(process)
@@ -1414,32 +1482,46 @@ router.post("/:user/:project/process", checkSharePermission, requireEditPermissi
       // Caso 1: sem advanced tools -> não é preciso falar com users-ms
       if (adv_ops === 0) {
         try {
-          // Se tivermos “chargedAdvancedTools” maior que o total atual, 
-          // corrigimos e guardamos.
+
+          // antes de abrir execução nova
+          project.prevCommittedToken = project.committedToken || 0;
+
+          // snapshot do último commit (fallback: tools atuais se nunca houve commit)
+          project.prevCommittedTools =
+            Array.isArray(project.committedTools) && project.committedTools.length > 0
+              ? project.committedTools
+              : (project.tools || []);
+
+          // abrir uma execução nova SEMPRE
+          project.activeToken = (project.activeToken || 0) + 1;
+
+          // coerência de counters
           if (charged !== project.chargedAdvancedTools) {
             project.chargedAdvancedTools = charged;
-            project.pendingAdvancedOps = 0;
+          }
+          project.pendingAdvancedOps = 0;
 
-            const updated = await Project.updateIfVersion(
-              ownerId,
-              req.params.project,
-              project,
-              req.expectedVersion
+          const updated = await Project.updateIfVersion(
+            ownerId,
+            req.params.project,
+            project,
+            req.expectedVersion
           );
 
           if (!updated) {
-              const fresh = await Project.getOne(ownerId, req.params.project);
-              return res.status(409).jsonp({
-                message: "Project version conflict",
-                serverVersion: fresh?.version ?? null,
-              });
-            }
-          res.set("X-Project-Version", String(updated.version));
-
+            const fresh = await Project.getOne(ownerId, req.params.project);
+            return res.status(409).jsonp({
+              message: "Project version conflict",
+              serverVersion: fresh?.version ?? null,
+            });
           }
 
+          res.set("X-Project-Version", String(updated.version));
+
+          // token desta execução
+          runToken = updated.activeToken;
+
           await startProcessing();
-          
         } catch (e) {
           console.error("Error starting processing (no advanced tools):", e);
           res.status(500).jsonp("Error processing project");
@@ -1465,6 +1547,11 @@ router.post("/:user/:project/process", checkSharePermission, requireEditPermissi
             project.chargedAdvancedTools = charged + newTools;
             project.pendingAdvancedOps = adv_ops;
 
+            project.prevCommittedToken = project.committedToken || 0;
+
+            // abrir uma execução nova
+            project.activeToken = (project.activeToken || 0) + 1;
+
             const updated = await Project.updateIfVersion(
               ownerId,
               req.params.project,
@@ -1481,6 +1568,8 @@ router.post("/:user/:project/process", checkSharePermission, requireEditPermissi
             }
 
             res.set("X-Project-Version", String(updated.version));
+
+            runToken = updated.activeToken; // token desta execução
 
             await startProcessing();
           } catch (e) {
@@ -1727,53 +1816,96 @@ router.delete(
   requireEditPermission,
   enforcePresenceLimit,
   requireProjectVersion,
-  (req, res) => {
-    Project.getOne(req.params.user, req.params.project)
-      .then(async (project) => {
-        try {
-          const tool = project.tools.find((i) => i._id == req.params.tool);
-          project.tools.remove(tool);
+  async (req, res) => {
+    try {
+      const project = await Project.getOne(req.params.user, req.params.project);
 
-          for (let i = 0; i < project.tools.length; i++) {
-            if (project.tools[i].position > tool.position) project.tools[i].position--;
-          }
-
-          const updated = await Project.updateIfVersion(
-            req.params.user,
-            req.params.project,
-            project,
-            req.expectedVersion
-          );
-
-          if (!updated) {
-            const fresh = await Project.getOne(req.params.user, req.params.project);
-            return res.status(409).jsonp({
-              message: "Project version conflict",
-              serverVersion: fresh?.version ?? null,
-            });
-          }
-
-          res.set("X-Project-Version", String(updated.version));
-
-          send_msg_project_op({
-            projectId: req.params.project,
-            ownerId: req.params.user,
-            op: {
-              opId: req.headers["x-op-id"] || null,
-              type: "TOOL_REMOVED",
-              actorId: getCallerId(req),
-              baseVersion: req.expectedVersion,
-              newVersion: updated.version,
-              payload: { toolId: req.params.tool },
-            },
-          });
-
-          return res.sendStatus(204);
-        } catch (_) {
-          return res.status(400).jsonp(`Error deleting tool's information`);
+      try {
+        const tool = project.tools.find((i) => i._id == req.params.tool);
+        if (!tool) {
+          return res.status(404).jsonp("Tool not found");
         }
-      })
-      .catch(() => res.status(501).jsonp(`Error acquiring user's project`));
+
+        project.tools.remove(tool);
+
+        for (let i = 0; i < project.tools.length; i++) {
+          if (project.tools[i].position > tool.position) project.tools[i].position--;
+        }
+
+        const updated = await Project.updateIfVersion(
+          req.params.user,
+          req.params.project,
+          project,
+          req.expectedVersion
+        );
+
+        if (!updated) {
+          const fresh = await Project.getOne(req.params.user, req.params.project);
+          return res.status(409).jsonp({
+            message: "Project version conflict",
+            serverVersion: fresh?.version ?? null,
+          });
+        }
+
+        res.set("X-Project-Version", String(updated.version));
+
+        // Invalidar execução / outputs atuais
+        // 1) apagar processos em curso para evitar resultados "tardios"
+        try {
+          const processes = await Process.getProject(req.params.user, req.params.project);
+          if (processes && processes.length > 0) {
+            for (const p of processes) {
+              await Process.delete(p.user_id, p.project_id, p._id);
+            }
+          }
+        } catch (err) {
+          console.error("Error clearing processes on tool delete:", err);
+        }
+
+        // 2) apagar outputs (DB + MinIO)
+        try {
+          const results = await Result.getAll(req.params.user, req.params.project);
+          for (const r of results) {
+            try {
+              await delete_image(req.params.user, req.params.project, "out", r.img_key);
+            } catch (_) {}
+            await Result.delete(r.user_id, r.project_id, r.img_id);
+          }
+
+          const previews = await Preview.getAll(req.params.user, req.params.project);
+          for (const p of previews) {
+            try {
+              await delete_image(req.params.user, req.params.project, "preview", p.img_key);
+            } catch (_) {}
+            await Preview.delete(p.user_id, p.project_id, p.img_id);
+          }
+        } catch (err) {
+          console.error("Error clearing outputs on tool delete:", err);
+        }
+
+        // broadcast granular op
+        send_msg_project_op({
+          projectId: req.params.project,
+          ownerId: req.params.user,
+          op: {
+            opId: req.headers["x-op-id"] || null,
+            type: "TOOL_REMOVED",
+            actorId: getCallerId(req),
+            baseVersion: req.expectedVersion,
+            newVersion: updated.version,
+            payload: { toolId: req.params.tool },
+          },
+        });
+
+        return res.sendStatus(204);
+      } catch (err) {
+        console.error(err);
+        return res.status(400).jsonp(`Error deleting tool's information`);
+      }
+    } catch (err) {
+      console.error(err);
+      return res.status(501).jsonp(`Error acquiring user's project`);
+    }
   }
 );
 
@@ -1859,76 +1991,111 @@ router.post(
   }
 );
 
-// Cancelar processamento de um projeto 
-router.delete("/:user/:project/process", checkSharePermission, requireEditPermission, enforcePresenceLimit, requireProjectVersion, async (req, res) => {
-  try {
-    // 1) tentar devolver operações ao utilizador (apenas as pendentes desta execução)
+// Cancelar processamento de um projeto
+router.delete(
+  "/:user/:project/process",
+  checkSharePermission,
+  requireEditPermission,
+  enforcePresenceLimit,
+  requireProjectVersion,
+  async (req, res) => {
     try {
-      const project = await Project.getOne(req.params.user, req.params.project);
-      const adv_ops = project.pendingAdvancedOps || 0;
+      const ownerId = req.params.user;
+      const projectId = req.params.project;
+
+      const project = await Project.getOne(ownerId, projectId);
+      if (!project) return res.status(404).jsonp("Project not found");
 
       const callerId = getCallerId(req);
+      const adv_ops = project.pendingAdvancedOps || 0;
 
-      if (adv_ops > 0) {
-        await axios.post(
-          users_ms + `${callerId}/process/refund/${adv_ops}`,
-          {},
-          { httpsAgent: httpsAgent },
-        );
+      const cancelTok = project.activeToken || 0;
 
-        // reset do pendingAdvancedOps depois do refund
-        project.pendingAdvancedOps = 0;
-        const updated = await Project.updateIfVersion(
-          req.params.user,
-          req.params.project,
-          project,
-          req.expectedVersion
-        );
+      // invalidar sempre execução atual
+      project.activeToken = (project.activeToken || 0) + 1;
 
-        if (!updated) {
-          const fresh = await Project.getOne(req.params.user, req.params.project);
-          return res.status(409).jsonp({
-            message: "Project version conflict",
-            serverVersion: fresh?.version ?? null,
-          });
-        }
+      // reset pending
+      project.pendingAdvancedOps = 0;
 
-        res.set("X-Project-Version", String(updated.version));
+      // rollback committed antes de persistir 
+      const prev = project.prevCommittedToken ?? (project.committedToken || 0);
+      const prevTools = project.prevCommittedTools ?? project.tools;
 
+      if ((project.committedToken || 0) === cancelTok) {
+        project.committedToken = prev;
+        project.resultsToken = prev;
+
+          // rollback tools para o último estado “consistente”
+          project.tools = Array.isArray(prevTools) ? prevTools : [];
+  
+          // opcional: manter committedTools coerente com o rollback
+          project.committedTools = Array.isArray(prevTools) ? prevTools : [];
       }
-    } catch (err) {
-      console.error("Error refunding operations on cancel:", err);
-    }
 
-    // 2) apagar processos em curso
-    const processes = await Process.getProject(
-      req.params.user,
-      req.params.project,
-    );
+      // refund se necessário
+      if (adv_ops > 0) {
+        try {
+          await axios.post(
+            users_ms + `${callerId}/process/refund/${adv_ops}`,
+            {},
+            { httpsAgent }
+          );
+        } catch (err) {
+          console.error("Error refunding operations on cancel:", err);
+        }
+      }
 
-    if (processes && processes.length > 0) {
-      for (const p of processes) {
+      // persistir alterações (inclui committedToken rollback)
+      const updated = await Project.updateIfVersion(
+        ownerId,
+        projectId,
+        project,
+        req.expectedVersion
+      );
+
+      if (!updated) {
+        const fresh = await Project.getOne(ownerId, projectId);
+        return res.status(409).jsonp({
+          message: "Project version conflict",
+          serverVersion: fresh?.version ?? null,
+        });
+      }
+
+      // apagar apenas resultados da execução cancelada
+      try {
+        const toDelete = await Result.getAllByToken(ownerId, projectId, cancelTok);
+        for (const r of toDelete) {
+          try { await delete_image(ownerId, projectId, "out", r.img_key); } catch (_) {}
+        }
+        await Result.deleteByToken(ownerId, projectId, cancelTok);
+
+        console.log(`[CANCEL][RESULTS-CLEAN] token=${cancelTok} deleted=${toDelete.length}`);
+      } catch (err) {
+        console.error("Error deleting cancelled run results:", err);
+      }
+
+      res.set("X-Project-Version", String(updated.version));
+
+      // limpar processos em curso
+      const processes = await Process.getProject(ownerId, projectId);
+      for (const p of (processes || [])) {
         await Process.delete(p.user_id, p.project_id, p._id);
       }
-    }
 
-    // 3) limpar diretórios temporários locais (não mexe no MinIO)
-    const basePath = `/../images/users/${req.params.user}/projects/${req.params.project}`;
-    const tmpDirs = ["src", "out", "preview"];
-
-    for (const dir of tmpDirs) {
-      const full = path.join(__dirname, `${basePath}/${dir}`);
-      if (fs.existsSync(full)) {
-        fs.rmSync(full, { recursive: true, force: true });
+      // limpar dirs temporários (opcional)
+      const basePath = `/../images/users/${ownerId}/projects/${projectId}`;
+      for (const dir of ["src", "preview"]) {
+        const full = path.join(__dirname, `${basePath}/${dir}`);
+        if (fs.existsSync(full)) fs.rmSync(full, { recursive: true, force: true });
       }
-    }
 
-    return res.sendStatus(204);
-  } catch (err) {
-    console.error("Error cancelling project processing:", err);
-    return res.status(500).jsonp("Error cancelling project processing");
+      return res.sendStatus(204);
+    } catch (err) {
+      console.error("Error cancelling project processing:", err);
+      return res.status(500).jsonp("Error cancelling project processing");
+    }
   }
-});
+);
 
 // ================== AI ASSISTANT (SUGGEST) ==================
 

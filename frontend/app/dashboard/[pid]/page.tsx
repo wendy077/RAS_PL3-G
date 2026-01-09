@@ -550,7 +550,7 @@ const handleCancel = () => {
 
   // limpar estado de preview (se alguma tool estava a fazer preview)
   setWaitingForPreview("");
-  
+
   // cancelar no backend
   cancelProcess.mutate(
     {
@@ -558,6 +558,12 @@ const handleCancel = () => {
     },
     {
       onSuccess: () => {
+
+      qc.invalidateQueries({
+        queryKey: ["projectImages", session.user._id, pid, session.token, ownerId, shareId],
+        refetchType: "all",
+      });
+
         // voltar a ir buscar a sessão para atualizar remaining_operations
         updateSession.mutate({
           userId: session.user._id,

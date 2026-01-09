@@ -10,6 +10,8 @@ var processSchema = new mongoose.Schema({
   new_img_uri: { type: String, required: true },
   runner_id: { type: String, required: false },  
   cache_key: { type: String, required: false },
+  cancelToken: { type: Number, required: false },
+  token: { type: Number, required: true },
 }, { timestamps: true });
 
 module.exports = mongoose.model("process", processSchema);
