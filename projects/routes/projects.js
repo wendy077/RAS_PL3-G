@@ -121,6 +121,34 @@ function advanced_tool_num(project) {
   return { totalAdv, charged, newTools, adv_ops };
 }
 
+function toolsEqual(a, b) {
+  const A = Array.isArray(a) ? a.slice() : [];
+  const B = Array.isArray(b) ? b.slice() : [];
+  if (A.length !== B.length) return false;
+
+  const norm = (t) => ({
+    procedure: t.procedure,
+    position: t.position,
+    params: t.params ?? {},
+  });
+
+  // comparar por posição (a tua pipeline é ordenada)
+  A.sort((x, y) => (x.position ?? 0) - (y.position ?? 0));
+  B.sort((x, y) => (x.position ?? 0) - (y.position ?? 0));
+
+  for (let i = 0; i < A.length; i++) {
+    const x = norm(A[i]);
+    const y = norm(B[i]);
+    if (x.procedure !== y.procedure) return false;
+    if ((x.position ?? 0) !== (y.position ?? 0)) return false;
+
+    // comparação estável de params
+    if (JSON.stringify(x.params) !== JSON.stringify(y.params)) return false;
+  }
+  return true;
+}
+
+
 // TODO process message according to type of output
 function process_msg() {
   read_msg(async (msg) => {
@@ -1819,19 +1847,24 @@ router.delete(
   async (req, res) => {
     try {
       const project = await Project.getOne(req.params.user, req.params.project);
+      if (!project) return res.status(404).jsonp("Project not found");
 
       try {
-        const tool = project.tools.find((i) => i._id == req.params.tool);
-        if (!tool) {
-          return res.status(404).jsonp("Tool not found");
-        }
+        const tool = project.tools.find((i) => String(i._id) === String(req.params.tool));
+        if (!tool) return res.status(404).jsonp("Tool not found");
 
+        // Guardar token atual (antes do undo) para sabermos o que apagar
+        const oldTok = project.committedToken ?? 0;
+
+        // Remover tool do array
         project.tools.remove(tool);
 
+        // Recalcular positions
         for (let i = 0; i < project.tools.length; i++) {
           if (project.tools[i].position > tool.position) project.tools[i].position--;
         }
 
+        // Persistir com controlo de versão
         const updated = await Project.updateIfVersion(
           req.params.user,
           req.params.project,
@@ -1845,6 +1878,30 @@ router.delete(
             message: "Project version conflict",
             serverVersion: fresh?.version ?? null,
           });
+        }
+
+        // ----------------------------
+        // (rollback de results)
+        // ----------------------------
+        const canRollback =
+          typeof updated.prevCommittedToken === "number" &&
+          Array.isArray(updated.prevCommittedTools);
+
+        // Se o estado atual (tools após undo) == prevCommittedTools,
+        // então voltamos ao token anterior imediatamente.
+        if (canRollback && toolsEqual(updated.tools, updated.prevCommittedTools)) {
+          const rollbackTok = updated.prevCommittedToken;
+
+          updated.committedToken = rollbackTok;
+          updated.resultsToken = rollbackTok;
+          updated.committedTools = updated.prevCommittedTools;
+
+          // opcional (mas normalmente boa ideia): como já voltaste ao "commit anterior",
+          // podes limpar o prevCommitted* para evitar encadear rollbacks errados
+          // updated.prevCommittedToken = 0;
+          // updated.prevCommittedTools = [];
+
+          await updated.save();
         }
 
         res.set("X-Project-Version", String(updated.version));
@@ -1862,16 +1919,8 @@ router.delete(
           console.error("Error clearing processes on tool delete:", err);
         }
 
-        // 2) apagar outputs (DB + MinIO)
+        // 2) apagar previews (faz sentido sempre — preview depende das tools atuais)
         try {
-          const results = await Result.getAll(req.params.user, req.params.project);
-          for (const r of results) {
-            try {
-              await delete_image(req.params.user, req.params.project, "out", r.img_key);
-            } catch (_) {}
-            await Result.delete(r.user_id, r.project_id, r.img_id);
-          }
-
           const previews = await Preview.getAll(req.params.user, req.params.project);
           for (const p of previews) {
             try {
@@ -1880,7 +1929,24 @@ router.delete(
             await Preview.delete(p.user_id, p.project_id, p.img_id);
           }
         } catch (err) {
-          console.error("Error clearing outputs on tool delete:", err);
+          console.error("Error clearing previews on tool delete:", err);
+        }
+
+        // 3)  apagar apenas outputs do token "mais recente" (oldTok),
+        // para não destruir o token para onde fizemos rollback.
+        try {
+          // results por token (como no cancel):
+          const resultsOld = await Result.getAllByToken(req.params.user, req.params.project, oldTok);
+          for (const r of resultsOld) {
+            try {
+              await delete_image(req.params.user, req.params.project, "out", r.img_key);
+            } catch (_) {}
+          }
+          await Result.deleteByToken(req.params.user, req.params.project, oldTok);
+
+          console.log(`[UNDO-ROLLBACK][RESULTS-CLEAN] token=${oldTok} deleted=${resultsOld.length}`);
+        } catch (err) {
+          console.error("Error clearing token results on tool delete:", err);
         }
 
         // broadcast granular op
@@ -1908,6 +1974,7 @@ router.delete(
     }
   }
 );
+
 
 // Limpar tools + resultados + previews + counters
 router.post(
