@@ -61,20 +61,39 @@ def _compute_padding(img_w, img_h, params: dict):
 
 
 def _make_canvas_and_mask(img: Image.Image, left: int, right: int, top: int, bottom: int):
-    """
-    Cria canvas expandido e máscara para outpainting (RF40):
-      - canvas: imagem original colada ao centro
-      - mask (L): 0 onde NÃO se deve mexer (zona original), 255 onde deve gerar (margens novas)
-    """
     new_w = img.width + left + right
     new_h = img.height + top + bottom
 
+    # 1) pré-preenche com reflect (dá contexto ao inpaint)
+    # reutiliza a tua lógica reflect (ou implementa simples)
     base = img.convert("RGB")
-    canvas = Image.new("RGB", (new_w, new_h), (0, 0, 0))
+
+    canvas = Image.new("RGB", (new_w, new_h))
     canvas.paste(base, (left, top))
 
+    if left > 0:
+        strip = base.crop((0, 0, min(left, base.width), base.height))
+        strip = ImageOps.mirror(strip)
+        canvas.paste(strip.resize((left, base.height)), (0, top))
+
+    if right > 0:
+        strip = base.crop((max(base.width - right, 0), 0, base.width, base.height))
+        strip = ImageOps.mirror(strip)
+        canvas.paste(strip.resize((right, base.height)), (left + base.width, top))
+
+    if top > 0:
+        strip = canvas.crop((0, top, new_w, top + min(top, base.height)))
+        strip = ImageOps.flip(strip)
+        canvas.paste(strip.resize((new_w, top)), (0, 0))
+
+    if bottom > 0:
+        strip = canvas.crop((0, top + base.height - min(bottom, base.height), new_w, top + base.height))
+        strip = ImageOps.flip(strip)
+        canvas.paste(strip.resize((new_w, bottom)), (0, top + base.height))
+
+    # 2) mask igual (255 nas margens, 0 na imagem original)
     mask = Image.new("L", (new_w, new_h), 255)
-    mask.paste(0, (left, top, left + img.width, top + img.height))
+    mask.paste(0, (left, top, left + base.width, top + base.height))
 
     return canvas, mask
 
