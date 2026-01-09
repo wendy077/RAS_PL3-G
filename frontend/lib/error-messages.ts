@@ -167,10 +167,9 @@ export function getErrorMessage(
 
     case "assistant-suggest":
       return {
-        title: "Erro ao gerar sugestões",
-        description:
-          backendMsg ??
-          "Não foi possível obter sugestões do assistente. Tenta novamente.",
+        title: "Falha no processamento",
+        description: "Falha no processamento. Tente novamente.",
+
       };
 
     case "project-reorder":
