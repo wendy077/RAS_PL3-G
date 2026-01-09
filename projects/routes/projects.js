@@ -35,7 +35,7 @@ const { getCallerId } = require("../utils/caller");
 const { ensureEditorSlot, releaseEditorSlot } = require("../utils/presence");
 const { extractImageFeatures } = require("../utils/imageFeatures");
 const PreviewCache = require("../controllers/previewCache");
-const { makePreviewCacheKey } = require("../utils/cacheKey");
+const { makePreviewCacheKey, makeToolsFingerprint } = require("../utils/cacheKey");
 
 const {
   get_image_docker,
@@ -1513,6 +1513,27 @@ router.post("/:user/:project/process", checkSharePermission, requireEditPermissi
       // Caso 1: sem advanced tools -> não é preciso falar com users-ms
       if (adv_ops === 0) {
         try {
+
+          // T-03 short-circuit: se nada mudou desde o último commit, não reprocessar
+          const hasCommit = (project.committedToken || 0) > 0;
+          const fpNow = makeToolsFingerprint(project.tools || []);
+          const fpCommitted = makeToolsFingerprint(project.committedTools || []);
+
+          if (hasCommit && fpNow === fpCommitted) {
+            console.log(
+              `[T-03][PROCESS][SKIP] user=${ownerId} project=${req.params.project} token=${project.committedToken}`
+            );
+
+            // Notificar frontend imediatamente (não há work para fazer)
+            send_msg_client(
+              `update-client-process-${uuidv4()}`,
+              new Date().toISOString(),
+              runnerUserId
+            );
+
+            // Mantém o contrato: “process pedido” -> resposta rápida
+            return res.sendStatus(201);
+          }
 
           // antes de abrir execução nova
           project.prevCommittedToken = project.committedToken || 0;
